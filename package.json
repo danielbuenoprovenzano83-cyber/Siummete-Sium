@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Bot Sicurezza",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "@adiwajshing/baileys-mongodb": "latest",
+    "@hapi/boom": "latest",
+    "mongoose": "latest",
+    "qrcode-terminal": "latest",
+    "express": "latest"
+  }
+}
