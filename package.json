@@ -1,14 +1,13 @@
 {
   "name": "whatsapp-bot-antiraid",
   "version": "1.0.0",
-  "description": "Bot WhatsApp Anti-Nuke con MongoDB",
+  "description": "Bot WhatsApp Anti-Nuke",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
-    "@distube/baileys-mongodb": "latest",
     "@hapi/boom": "latest",
     "mongoose": "latest",
     "qrcode-terminal": "latest",
