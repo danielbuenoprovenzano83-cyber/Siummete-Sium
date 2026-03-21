@@ -8,7 +8,7 @@ const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode-terminal");
 const express = require('express');
 const mongoose = require('mongoose');
-const { useMongoDBAuthState } = require("@adiwajshing/baileys-mongodb");
+const { useMongoDBAuthState } = require("@distube/baileys-mongodb");
 
 // --- CONFIGURAZIONE SERVER PER RENDER ---
 const app = express();
@@ -18,7 +18,7 @@ app.listen(port, () => console.log(`Server attivo sulla porta ${port}`));
 
 // --- CONFIGURAZIONE MONGODB E WHITELIST ---
 const mongoURI = process.env.MONGO_URI; 
-const ownerNumber = "393331234567@s.whatsapp.net"; // Inserisci il tuo numero con @s.whatsapp.net
+const ownerNumber = "393331234567@s.whatsapp.net"; // Cambia con il tuo numero se vuoi
 const whitelist = [ownerNumber]; 
 
 const msgCounter = {}; 
@@ -53,7 +53,7 @@ async function startBot() {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) startBot();
         } else if (connection === "open") {
-            console.log("✅ BOT ONLINE E PROTETTO!");
+            console.log("✅ BOT ONLINE E PROTETTO SU MONGODB!");
         }
     });
 
@@ -61,23 +61,20 @@ async function startBot() {
     sock.ev.on("group-participants.update", async (update) => {
         const { id, participants, action, author } = update;
         
-        // 🛡️ ANTI-NUKE: Monitora espulsioni di massa
         if (action === "remove" && author && !whitelist.includes(author)) {
             nukeTracker[author] = (nukeTracker[author] || 0) + participants.length;
-            if (nukeTracker[author] > 3) { // Soglia: più di 3 rimozioni
+            if (nukeTracker[author] > 3) {
                 await sock.groupParticipantsUpdate(id, [author], "remove");
-                await sock.sendMessage(id, { text: `🚨 @${author.split('@')[0]} BANNATO PER TENTATO NUKE!`, mentions: [author] });
+                await sock.sendMessage(id, { text: `🚨 @${author.split('@')[0]} BANNAVATO PER TENTATO NUKE!`, mentions: [author] });
                 delete nukeTracker[author];
             }
             setTimeout(() => { delete nukeTracker[author]; }, 30000);
         }
 
-        // 🛡️ ANTI-VOIP: Blocca prefissi esteri sospetti (es: +1 USA, +234 Nigeria, +44 UK)
         if (action === "add") {
             for (let p of participants) {
                 if (p.startsWith("1") || p.startsWith("234") || p.startsWith("44")) {
                     await sock.groupParticipantsUpdate(id, [p], "remove");
-                    // Opzionale: Rimuovi anche chi lo ha aggiunto (l'author)
                     if (author && !whitelist.includes(author)) {
                         await sock.groupParticipantsUpdate(id, [author], "remove");
                     }
@@ -99,14 +96,12 @@ async function startBot() {
 
         if (whitelist.includes(sender)) return;
 
-        // 🛡️ ANTI-LINK
         if (/(https?:\/\/[^\s]+)/g.test(text)) {
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
             return;
         }
 
-        // 🛡️ ANTI-SPAM (10 messaggi identici)
         msgCounter[sender] = (msgCounter[sender] || { text: "", count: 0 });
         if (msgCounter[sender].text === text) {
             msgCounter[sender].count++;
@@ -122,4 +117,4 @@ async function startBot() {
     });
 }
 
-startBot().catch(err => console.error("Errore:", err));
+startBot().catch(err => console.error("Errore critico:", err));
