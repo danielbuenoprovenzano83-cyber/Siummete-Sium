@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
-    "baileys-mongodb-storage": "latest",
+    "@vreden/baileys-mongodb-storage": "latest",
     "@hapi/boom": "latest",
     "mongoose": "^8.0.0",
     "qrcode-terminal": "latest",
