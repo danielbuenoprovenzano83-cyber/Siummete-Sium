@@ -2,36 +2,26 @@ const {
     default: makeWASocket, 
     DisconnectReason, 
     Browsers, 
+    useMultiFileAuthState,
     fetchLatestBaileysVersion 
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode-terminal");
 const express = require('express');
-const mongoose = require("mongoose");
-const { useMongoDBAuthState } = require("@vreden/baileys-mongodb-storage");
 
 // --- SERVER PER RENDER ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot Anti-Nuke Online!'));
+app.get('/', (req, res) => res.send('Bot Online!'));
 app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
 
 const nukeTracker = {};
 const spamTracker = {}; 
-const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA CON IL TUO NUMERO
-const mongoURL = process.env.MONGODB_URL;
+const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA COL TUO NUMERO
 
 async function startBot() {
-    if (!mongoURL) {
-        console.error("❌ ERRORE: MONGODB_URL mancante su Render!");
-        process.exit(1);
-    }
-
-    // Connessione MongoDB e setup Auth
-    await mongoose.connect(mongoURL);
-    const collection = mongoose.connection.db.collection("auth_info_baileys");
-    const { state, saveCreds } = await useMongoDBAuthState(collection);
-    
+    // Usiamo il sistema di file locale (Render manterrà la sessione finché non fai il Clear Cache)
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -43,23 +33,14 @@ async function startBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    const notifyAdmins = async (jid, text) => {
-        try {
-            const metadata = await sock.groupMetadata(jid);
-            const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
-            await sock.sendMessage(jid, { text: text, mentions: admins });
-        } catch (e) {}
-    };
-
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect, qr } = update;
         if (qr) qrcode.generate(qr, { small: true });
-        
         if (connection === "close") {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) startBot();
         } else if (connection === "open") {
-            console.log("🚀 BOT ONLINE!");
+            console.log("🚀 BOT ONLINE! Scansiona il QR Code se necessario.");
         }
     });
 
@@ -70,7 +51,6 @@ async function startBot() {
             for (let p of participants) {
                 if (["212", "92", "234", "254"].some(prefix => p.startsWith(prefix)) && !whitelist.includes(p)) {
                     await sock.groupParticipantsUpdate(id, [p], "remove");
-                    await notifyAdmins(id, `🛡️ Rimosso sospetto: @${p.split('@')[0]}`);
                 }
             }
         }
@@ -78,13 +58,12 @@ async function startBot() {
             nukeTracker[author] = (nukeTracker[author] || 0) + participants.length;
             if (nukeTracker[author] > 3) {
                 await sock.groupParticipantsUpdate(id, [author], "remove");
-                await notifyAdmins(id, `🚨 Nuke rilevato da @${author.split('@')[0]}`);
             }
             setTimeout(() => delete nukeTracker[author], 30000);
         }
     });
 
-    // --- ANTI-LINK / ANTI-SPAM ---
+    // --- ANTI-LINK ---
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
@@ -94,19 +73,10 @@ async function startBot() {
 
         if (whitelist.includes(sender) || !jid.endsWith('@g.us')) return;
 
-        if (m.key.id.startsWith("BAE5") || /(https?:\/\/[^\s]+)/g.test(text)) {
+        if (/(https?:\/\/[^\s]+)/g.test(text)) {
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
-            return;
         }
-
-        const spamKey = `${sender}_spam`;
-        spamTracker[spamKey] = (spamTracker[spamKey] || 0) + 1;
-        if (spamTracker[spamKey] >= 10) {
-            await sock.groupParticipantsUpdate(jid, [sender], "remove");
-            delete spamTracker[spamKey];
-        }
-        setTimeout(() => delete spamTracker[spamKey], 15000);
     });
 }
 
