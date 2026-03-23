@@ -1,3 +1,6 @@
+const pLimit = require('p-limit');
+const limit = pLimit(60); // Limita a 60 operazioni contemporanee al secondo
+
 const { 
     default: makeWASocket, 
     DisconnectReason, 
