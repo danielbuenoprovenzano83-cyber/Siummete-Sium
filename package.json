@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
+    "wa-baileys-mongodb-auth": "latest",
     "@hapi/boom": "latest",
     "mongoose": "^8.0.0",
     "qrcode-terminal": "latest",
