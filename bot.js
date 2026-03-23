@@ -9,64 +9,59 @@ const { Boom } = require("@hapi/boom");
 const express = require('express');
 const pino = require('pino');
 
-// --- SERVER PER RENDER (Mantiene il bot sveglio) ---
+// --- SERVER PER RENDER ---
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('🛡️ Bot Anti-Nuke & Anti-Spam Online!'));
-app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
+app.listen(port, () => console.log(`✅ [1/4] Server attivo sulla porta ${port}`));
 
 const nukeTracker = {};
 const spamTracker = {}; 
 const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA COL TUO NUMERO
-const ME_NUMBER = "6285137595799"; // IL TUO NUMERO SENZA +
+const ME_NUMBER = "6285137595799"; 
 
-// --- SISTEMA DI RATE LIMITING NATIVO (60 msg/sec) ---
+// --- RATE LIMITING (60 msg/sec) ---
 let messagesProcessedThisSecond = 0;
 setInterval(() => { messagesProcessedThisSecond = 0; }, 1000);
 
 async function startBot() {
+    console.log("🚀 [2/4] Avvio procedura Baileys...");
+    
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    console.log("📂 [3/4] Sessione caricata.");
+
     const { version } = await fetchLatestBaileysVersion();
+    console.log(`🌐 [4/4] Connessione a WhatsApp v${version}...`);
 
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        // Configurazione ottimizzata per WhatsApp Business (Emulazione MacOS)
         browser: ["Mac OS", "Chrome", "122.0.6261.112"], 
         syncFullHistory: false,
-        printQRInTerminal: false,
         markOnlineOnConnect: true
     });
 
-    // --- SALVATAGGIO SESSIONE ---
     sock.ev.on('creds.update', saveCreds);
 
-       // --- LOGICA PAIRING CODE RINFORZATA ---
+    // --- LOGICA PAIRING CODE OTTIMIZZATA ---
     if (!sock.authState.creds.registered) {
-        console.log(`\n\n--- ⏳ TENTATIVO DI GENERAZIONE CODICE PER: ${ME_NUMBER} ---`);
+        console.log(`\n⚠️ DISPOSITIVO NON COLLEGATO! Richiesta codice per: ${ME_NUMBER}`);
         
-        // Aspettiamo che il socket sia "aperto" prima di chiedere il codice
-        sock.ev.on('connection.update', async (update) => {
-            const { connection } = update;
-            if (connection === 'connecting') {
-                try {
-                    // Aspetta 5 secondi dopo l'inizio della connessione
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    let code = await sock.requestPairingCode(ME_NUMBER);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    
-                    console.log("\n********************************************");
-                    console.log(`* 🔑 CODICE PAIRING: ${code} *`);
-                    console.log("********************************************\n");
-                } catch (error) {
-                    console.error("❌ WHATSAPP HA RIFIUTATO LA RICHIESTA. RIPROVA TRA UN'ORA.");
-                }
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(ME_NUMBER);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log("\n********************************************");
+                console.log(`* 🔑 IL TUO CODICE: ${code} *`);
+                console.log("********************************************\n");
+            } catch (error) {
+                console.error("❌ Errore Pairing: WhatsApp ha rifiutato la richiesta (Rate Limit o IP).");
             }
-        });
+        }, 5000); // 5 secondi di attesa per stabilizzare il socket
     }
 
-    // --- 1. ANTI-NUKE & ANTI-BOT (INGRESSI) ---
+    // --- 1. ANTI-NUKE & ANTI-BOT ---
     sock.ev.on("group-participants.update", async (update) => {
         const { id, participants, action, author } = update;
         if (action === "add") {
@@ -87,12 +82,11 @@ async function startBot() {
         }
     });
 
-    // --- 2. ANTI-SPAM (AGRESSIVO) & RATE LIMIT ---
+    // --- 2. ANTI-SPAM & RATE LIMIT ---
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const m = messages[0];
-        if (!m.message || m.key.fromMe) return;
+        if (!m || !m.message || m.key.fromMe) return;
 
-        // --- CONTROLLO RATE LIMIT (60 MSG/SEC) ---
         if (messagesProcessedThisSecond >= 60) return;
         messagesProcessedThisSecond++;
 
@@ -105,7 +99,6 @@ async function startBot() {
 
         if (whitelist.includes(sender)) return;
 
-        // RILEVAMENTO BOT & LINK
         const isBot = msgId.startsWith("BAE5") || msgId.startsWith("3EB0") || msgId.length < 15;
         const hasLink = /(https?:\/\/[^\s]+)/g.test(text);
 
@@ -115,7 +108,6 @@ async function startBot() {
             return;
         }
 
-        // ANTI-SPAM
         if (!spamTracker[sender]) spamTracker[sender] = 0;
         spamTracker[sender]++;
 
@@ -129,7 +121,6 @@ async function startBot() {
                 text: `🚫 *ANTI-SPAM* 🚫\nUtente rimosso per spam eccessivo.`, 
                 mentions: admins 
             });
-
             delete spamTracker[sender];
             return;
         }
@@ -139,15 +130,18 @@ async function startBot() {
         }, 10000);
     });
 
-    // --- GESTIONE RICONNESSIONE ---
+    // --- GESTIONE CONNESSIONE ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom) ? 
                 lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
+            console.log("🔄 Connessione chiusa. Riconnessione...");
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('✅ BOT COLLEGATO E ONLINE!');
         }
     });
 }
+
+startBot().catch(err => console.error("Errore critico:", err));
