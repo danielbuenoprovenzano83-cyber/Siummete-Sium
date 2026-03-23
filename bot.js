@@ -1,15 +1,3 @@
-// --- SISTEMA DI RATE LIMITING NATIVO (60 msg/sec) ---
-let messagesProcessedThisSecond = 0;
-setInterval(() => { messagesProcessedThisSecond = 0; }, 1000); 
-
-sock.ev.on("messages.upsert", async ({ messages }) => {
-    // Se superiamo i 60, il bot ignora i messaggi extra per quel secondo
-    if (messagesProcessedThisSecond >= 60) return; 
-    messagesProcessedThisSecond++;
-
-    const m = messages[0]; // Prendi il primo messaggio dell'array
-    if (!m.message || m.key.fromMe) return;
-
 const { 
     default: makeWASocket, 
     DisconnectReason, 
@@ -30,7 +18,11 @@ app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
 const nukeTracker = {};
 const spamTracker = {}; 
 const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA COL TUO NUMERO
-const ME_NUMBER = "6285137595799"; // 👈 METTI IL TUO NUMERO PER IL PAIRING CODE
+const ME_NUMBER = "6285137595799"; // 👈 IL TUO NUMERO PER IL PAIRING CODE
+
+// --- CONTATORE PER RATE LIMIT (60 al secondo) ---
+let messagesProcessedThisSecond = 0;
+setInterval(() => { messagesProcessedThisSecond = 0; }, 1000);
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -44,14 +36,15 @@ async function startBot() {
         syncFullHistory: false
     });
 
-    // --- LOGICA PAIRING CODE RINFORZATA ---
+    // --- SALVATAGGIO CREDENZIALI ---
+    sock.ev.on('creds.update', saveCreds);
+
+    // --- LOGICA PAIRING CODE ---
     if (!sock.authState.creds.registered) {
         console.log(`\n\n--- ⏳ RICHIESTA CODICE IN CORSO PER: ${ME_NUMBER} ---`);
         
         setTimeout(async () => {
             try {
-                // Cambiamo il browser string per "ingannare" WhatsApp e forzare il codice
-                // Usiamo un browser che WhatsApp riconosce facilmente per il pairing
                 let code = await sock.requestPairingCode(ME_NUMBER);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 
@@ -59,10 +52,10 @@ async function startBot() {
                 console.log(`* 🔑 IL TUO CODICE È: ${code} *`);
                 console.log("********************************************\n");
             } catch (error) {
-                console.error("❌ ERRORE CRITICO: WhatsApp ha rifiutato la richiesta. Verifica il numero!");
+                console.error("❌ ERRORE CRITICO: WhatsApp ha rifiutato la richiesta.");
                 console.error(error);
             }
-        }, 15000); // Aspettiamo 15 secondi pieni per essere sicuri che il bot sia pronto
+        }, 15000);
     }
 
     // --- 1. ANTI-NUKE & ANTI-BOT (INGRESSI) ---
@@ -86,8 +79,12 @@ async function startBot() {
         }
     });
 
-    // --- 2. ANTI-SPAM (AGRESSIVO), ANTI-LINK & BOT FIRMA ---
+    // --- 2. ANTI-SPAM, ANTI-LINK & RATE LIMIT ---
     sock.ev.on("messages.upsert", async ({ messages }) => {
+        // --- APPLICAZIONE LIMITE 60 MSG/SEC ---
+        if (messagesProcessedThisSecond >= 60) return;
+        messagesProcessedThisSecond++;
+
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
 
@@ -110,17 +107,15 @@ async function startBot() {
             return;
         }
 
-        // --- ANTI-SPAM AGGRESSIVO (Qualsiasi messaggio corto o lungo) ---
+        // --- ANTI-SPAM AGGRESSIVO ---
         if (!spamTracker[sender]) spamTracker[sender] = 0;
         spamTracker[sender]++;
 
-        // Se l'utente invia 7 messaggi in meno di 10 secondi, viene rimosso
         if (spamTracker[sender] >= 10) { 
             console.log(`🚫 Spam rilevato da ${sender}`);
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
             
-            // Notifica Admin
             const metadata = await sock.groupMetadata(jid);
             const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
             await sock.sendMessage(jid, { 
@@ -132,11 +127,22 @@ async function startBot() {
             return;
         }
 
-        // Reset del contatore ogni 10 secondi
         setTimeout(() => {
             if (spamTracker[sender] > 0) spamTracker[sender]--;
         }, 10000);
     });
+
+    // --- GESTIONE RICONNESSIONE ---
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error instanceof Boom) ? 
+                lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log('✅ Connessione stabilita con successo!');
+        }
+    });
 }
 
-startBot().catch(err => console.error(err));
+startBot().catch(err => console.error("Errore fatale:", err));
