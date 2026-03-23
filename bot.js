@@ -8,34 +8,27 @@ const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode-terminal");
 const express = require('express');
 const mongoose = require("mongoose");
-const { useMongoDBAuthState } = require("@vreden/baileys-mongodb-storage");
+const { useMongoDBAuthState } = require("wa-baileys-mongodb-auth");
 
-// --- SERVER PER RENDER (Keep-Alive) ---
+// --- SERVER PER RENDER ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot Anti-Nuke & Anti-Bot Online con MongoDB!'));
+app.get('/', (req, res) => res.send('Bot Anti-Nuke Online!'));
 app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
 
 const nukeTracker = {};
 const spamTracker = {}; 
 const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA CON IL TUO NUMERO
-const mongoURL = process.env.MONGODB_URL; // Verifica che su Render sia scritto identico
+const mongoURL = process.env.MONGODB_URL;
 
 async function startBot() {
-    // --- CONNESSIONE MONGODB ---
     if (!mongoURL) {
-        console.error("❌ ERRORE: MONGODB_URL non configurata su Render!");
+        console.error("❌ ERRORE: MONGODB_URL mancante su Render!");
         process.exit(1);
     }
 
-    try {
-        await mongoose.connect(mongoURL);
-        console.log("✅ Connesso a MongoDB con successo!");
-    } catch (err) {
-        console.error("❌ Errore connessione MongoDB:", err);
-        process.exit(1);
-    }
-
+    // Connessione MongoDB e setup Auth
+    await mongoose.connect(mongoURL);
     const collection = mongoose.connection.db.collection("auth_info_baileys");
     const { state, saveCreds } = await useMongoDBAuthState(collection);
     
@@ -45,19 +38,17 @@ async function startBot() {
         version,
         auth: state,
         printQRInTerminal: true,
-        browser: Browsers.ubuntu('Chrome'),
-        syncFullHistory: false
+        browser: Browsers.ubuntu('Chrome')
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Funzione Notifica Admin
     const notifyAdmins = async (jid, text) => {
         try {
             const metadata = await sock.groupMetadata(jid);
             const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
             await sock.sendMessage(jid, { text: text, mentions: admins });
-        } catch (e) { console.error("Errore notifica admin:", e); }
+        } catch (e) {}
     };
 
     sock.ev.on("connection.update", (update) => {
@@ -66,82 +57,57 @@ async function startBot() {
         
         if (connection === "close") {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            console.log(`Connessione chiusa. Motivo: ${reason}`);
-            if (reason !== DisconnectReason.loggedOut) {
-                startBot();
-            }
+            if (reason !== DisconnectReason.loggedOut) startBot();
         } else if (connection === "open") {
-            console.log("🚀 BOT ONLINE E SESSIONE SALVATA SU CLOUD!");
+            console.log("🚀 BOT ONLINE!");
         }
     });
 
-    // --- PROTEZIONE ANTI-NUKE E ANTI-BOT ---
+    // --- PROTEZIONE ANTI-NUKE ---
     sock.ev.on("group-participants.update", async (update) => {
         const { id, participants, action, author } = update;
-        
         if (action === "add") {
-            for (let participant of participants) {
-                const blacklistedPrefixes = ["212", "92", "234", "254"]; 
-                const isSuspicious = blacklistedPrefixes.some(p => participant.startsWith(p));
-
-                if (isSuspicious && !whitelist.includes(participant)) {
-                    await sock.groupParticipantsUpdate(id, [participant], "remove");
-                    await notifyAdmins(id, `🛡️ *SICUREZZA* 🛡️\nRimossa entrata sospetta: @${participant.split('@')[0]}`);
+            for (let p of participants) {
+                if (["212", "92", "234", "254"].some(prefix => p.startsWith(prefix)) && !whitelist.includes(p)) {
+                    await sock.groupParticipantsUpdate(id, [p], "remove");
+                    await notifyAdmins(id, `🛡️ Rimosso sospetto: @${p.split('@')[0]}`);
                 }
             }
         }
-
         if (action === "remove" && author && !whitelist.includes(author)) {
             nukeTracker[author] = (nukeTracker[author] || 0) + participants.length;
             if (nukeTracker[author] > 3) {
                 await sock.groupParticipantsUpdate(id, [author], "remove");
-                await notifyAdmins(id, `🚨 *ALLERTA NUKE* 🚨\nL'utente @${author.split('@')[0]} è stato rimosso per tentato nuke.`);
-                delete nukeTracker[author];
+                await notifyAdmins(id, `🚨 Nuke rilevato da @${author.split('@')[0]}`);
             }
-            setTimeout(() => { delete nukeTracker[author]; }, 30000);
+            setTimeout(() => delete nukeTracker[author], 30000);
         }
     });
 
-    // --- ANTI-LINK E ANTI-SPAM ---
+    // --- ANTI-LINK / ANTI-SPAM ---
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
-
         const jid = m.key.remoteJid;
-        if (!jid.endsWith('@g.us')) return;
-
         const sender = m.key.participant || m.key.remoteJid;
-        const msgId = m.key.id;
         const text = m.message.conversation || m.message.extendedTextMessage?.text || "";
 
-        if (whitelist.includes(sender)) return;
+        if (whitelist.includes(sender) || !jid.endsWith('@g.us')) return;
 
-        // Rilevamento Firma Bot
-        const isBotSignature = msgId.startsWith("BAE5") || msgId.startsWith("3EB0") || msgId.length < 15;
-        if (isBotSignature) {
+        if (m.key.id.startsWith("BAE5") || /(https?:\/\/[^\s]+)/g.test(text)) {
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
             return;
         }
 
-        // Anti-Link
-        if (/(https?:\/\/[^\s]+)/g.test(text)) {
-            await sock.sendMessage(jid, { delete: m.key });
-            await sock.groupParticipantsUpdate(jid, [sender], "remove");
-            return;
-        }
-
-        // Anti-Spam
-        const spamKey = `${sender}_${text.substring(0, 10)}`; 
+        const spamKey = `${sender}_spam`;
         spamTracker[spamKey] = (spamTracker[spamKey] || 0) + 1;
-
         if (spamTracker[spamKey] >= 10) {
-            await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
             delete spamTracker[spamKey];
         }
-        setTimeout(() => { if(spamTracker[spamKey]) delete spamTracker[spamKey]; }, 15000);
+        setTimeout(() => delete spamTracker[spamKey], 15000);
     });
 }
 
-startBot().catch(err => console.error("Errore critico all'avvio:", err));
+startBot().catch(err => console.error(err));
