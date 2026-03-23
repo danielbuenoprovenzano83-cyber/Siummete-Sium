@@ -10,7 +10,6 @@ const express = require('express');
 const mongoose = require("mongoose");
 const { useMongoDBAuthState } = require("@vreden/baileys-mongodb-storage");
 
-
 // --- SERVER PER RENDER (Keep-Alive) ---
 const app = express();
 const port = process.env.PORT || 3000;
