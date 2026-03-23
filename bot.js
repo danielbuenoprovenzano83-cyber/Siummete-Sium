@@ -1,5 +1,14 @@
-const pLimit = require('p-limit');
-const limit = pLimit(60); // Limita a 60 operazioni contemporanee al secondo
+// --- SISTEMA DI RATE LIMITING NATIVO (60 msg/sec) ---
+let messagesProcessedThisSecond = 0;
+setInterval(() => { messagesProcessedThisSecond = 0; }, 1000); 
+
+sock.ev.on("messages.upsert", async ({ messages }) => {
+    // Se superiamo i 60, il bot ignora i messaggi extra per quel secondo
+    if (messagesProcessedThisSecond >= 60) return; 
+    messagesProcessedThisSecond++;
+
+    const m = messages[0]; // Prendi il primo messaggio dell'array
+    if (!m.message || m.key.fromMe) return;
 
 const { 
     default: makeWASocket, 
