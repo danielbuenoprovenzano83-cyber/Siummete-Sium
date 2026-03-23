@@ -42,23 +42,28 @@ async function startBot() {
     // --- SALVATAGGIO SESSIONE ---
     sock.ev.on('creds.update', saveCreds);
 
-    // --- LOGICA PAIRING CODE VELOCE ---
+       // --- LOGICA PAIRING CODE RINFORZATA ---
     if (!sock.authState.creds.registered) {
-        console.log(`\n\n--- ⏳ GENERAZIONE CODICE PER: ${ME_NUMBER} ---`);
+        console.log(`\n\n--- ⏳ TENTATIVO DI GENERAZIONE CODICE PER: ${ME_NUMBER} ---`);
         
-        // Ridotto a 6 secondi per evitare la scadenza del codice
-        setTimeout(async () => {
-            try {
-                let code = await sock.requestPairingCode(ME_NUMBER);
-                code = code?.match(/.{1,4}/g)?.join("-") || code;
-                
-                console.log("\n********************************************");
-                console.log(`* 🔑 CODICE PAIRING: ${code} *`);
-                console.log("********************************************\n");
-            } catch (error) {
-                console.error("❌ Errore pairing: Numero non valido o troppi tentativi.");
+        // Aspettiamo che il socket sia "aperto" prima di chiedere il codice
+        sock.ev.on('connection.update', async (update) => {
+            const { connection } = update;
+            if (connection === 'connecting') {
+                try {
+                    // Aspetta 5 secondi dopo l'inizio della connessione
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    let code = await sock.requestPairingCode(ME_NUMBER);
+                    code = code?.match(/.{1,4}/g)?.join("-") || code;
+                    
+                    console.log("\n********************************************");
+                    console.log(`* 🔑 CODICE PAIRING: ${code} *`);
+                    console.log("********************************************\n");
+                } catch (error) {
+                    console.error("❌ WHATSAPP HA RIFIUTATO LA RICHIESTA. RIPROVA TRA UN'ORA.");
+                }
             }
-        }, 6000);
+        });
     }
 
     // --- 1. ANTI-NUKE & ANTI-BOT (INGRESSI) ---
