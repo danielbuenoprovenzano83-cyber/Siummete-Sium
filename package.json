@@ -1,3 +1,4 @@
+
 {
   "name": "whatsapp-bot-antiraid",
   "version": "1.0.0",
@@ -8,6 +9,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
+    "baileys-mongodb-storage": "latest",
     "@hapi/boom": "latest",
     "mongoose": "latest",
     "qrcode-terminal": "latest",
