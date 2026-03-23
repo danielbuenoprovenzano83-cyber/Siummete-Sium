@@ -1,17 +1,16 @@
 {
   "name": "whatsapp-bot-antiraid",
   "version": "1.0.0",
-  "description": "Bot WhatsApp Anti-Nuke & Anti-Spam",
+  "description": "Bot WhatsApp Anti-Nuke con UptimeRobot",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
-    "@adiwajshing/baileys-mongodb": "latest",
     "@hapi/boom": "latest",
-    "mongoose": "^8.0.0",
     "qrcode-terminal": "latest",
-    "express": "latest"
+    "express": "latest",
+    "pino": "latest"
   }
 }
