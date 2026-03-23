@@ -2,25 +2,32 @@ const {
     default: makeWASocket, 
     DisconnectReason, 
     Browsers, 
-    useMultiFileAuthState,
     fetchLatestBaileysVersion 
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode-terminal");
 const express = require('express');
+const mongoose = require("mongoose");
+const { useMongoDBAuthState } = require("baileys-mongodb-storage");
 
 // --- SERVER PER RENDER ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot Anti-Nuke & Anti-Bot Attivo!'));
+app.get('/', (req, res) => res.send('Bot Anti-Nuke & Anti-Bot Online con MongoDB!'));
 app.listen(port, () => console.log(`Server attivo sulla porta ${port}`));
 
 const nukeTracker = {};
 const spamTracker = {}; 
 const whitelist = ["393331234567@s.whatsapp.net"]; // Sostituisci con il tuo numero
+const mongoURL = process.env.MONGODB_URL; // Carica la URL dalle variabili d'ambiente
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    // --- CONNESSIONE MONGODB PER SESSIONE PERSISTENTE ---
+    if (!mongoURL) throw new Error("ERRORE: MONGODB_URL non configurata su Render!");
+    await mongoose.connect(mongoURL);
+    const collection = mongoose.connection.db.collection("auth_info_baileys");
+    const { state, saveCreds } = await useMongoDBAuthState(collection);
+    
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -48,7 +55,7 @@ async function startBot() {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) startBot();
         } else if (connection === "open") {
-            console.log("✅ BOT ONLINE E PROTEZIONI ATTIVE!");
+            console.log("✅ BOT ONLINE E SESSIONE SALVATA SU CLOUD!");
         }
     });
 
@@ -56,11 +63,9 @@ async function startBot() {
     sock.ev.on("group-participants.update", async (update) => {
         const { id, participants, action, author } = update;
         
-        // 1. BLOCCO BOT STRANIERI/SOSPETTI ALL'ENTRATA
         if (action === "add") {
             for (let participant of participants) {
                 const prefix = participant.split('')[0] + participant.split('')[1];
-                // Esempio: blocca prefissi +212, +92, +234 (comuni nei nuke) se non in whitelist
                 const blacklistedPrefixes = ["212", "92", "234", "254"]; 
                 const isSuspicious = blacklistedPrefixes.some(p => participant.startsWith(p));
 
@@ -71,7 +76,6 @@ async function startBot() {
             }
         }
 
-        // 2. ANTI-NUKE (RIMOZIONE DI MASSA)
         if (action === "remove" && author && !whitelist.includes(author)) {
             nukeTracker[author] = (nukeTracker[author] || 0) + participants.length;
             if (nukeTracker[author] > 3) {
@@ -83,7 +87,7 @@ async function startBot() {
         }
     });
 
-    // --- ANTI-LINK, ANTI-SPAM (20) E RILEVAMENTO FIRMA BOT ---
+    // --- ANTI-LINK, ANTI-SPAM E RILEVAMENTO FIRMA BOT ---
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
@@ -97,7 +101,6 @@ async function startBot() {
 
         if (whitelist.includes(sender)) return;
 
-        // 1. IDENTIFICAZIONE FIRMA BOT (BAILEYS/ALTRI)
         const isBotSignature = msgId.startsWith("BAE5") || msgId.startsWith("3EB0") || msgId.length < 15;
         if (isBotSignature) {
             await sock.sendMessage(jid, { delete: m.key });
@@ -106,7 +109,6 @@ async function startBot() {
             return;
         }
 
-        // 2. ANTI-LINK
         if (/(https?:\/\/[^\s]+)/g.test(text)) {
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
@@ -114,14 +116,13 @@ async function startBot() {
             return;
         }
 
-        // 3. ANTI-SPAM (20 MESSAGGI UGUALI)
-        const spamKey = `${sender}_${text.substring(0, 20)}`; // Chiave basata su utente + inizio testo
+        const spamKey = `${sender}_${text.substring(0, 10)}`; 
         spamTracker[spamKey] = (spamTracker[spamKey] || 0) + 1;
 
-        if (spamTracker[spamKey] >= 20) {
+        if (spamTracker[spamKey] >= 10) {
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
-            await notifyAdmins(jid, `🚫 *SPAM DETECTED* 🚫\n@${sender.split('@')[0]} rimosso per spam eccessivo (20+ msg).`);
+            await notifyAdmins(jid, `🚫 *SPAM DETECTED* 🚫\n@${sender.split('@')[0]} rimosso per spam eccessivo (10+ msg).`);
             delete spamTracker[spamKey];
         }
         setTimeout(() => { if(spamTracker[spamKey]) delete spamTracker[spamKey]; }, 15000);
