@@ -8,7 +8,7 @@ const { Boom } = require("@hapi/boom");
 const qrcode = require("qrcode-terminal");
 const express = require('express');
 const mongoose = require("mongoose");
-const { useMongoDBAuthState } = require("wa-baileys-mongodb-auth");
+const { useMongoDBAuthState } = require("@vreden/baileys-mongodb-storage");
 
 // --- SERVER PER RENDER ---
 const app = express();
