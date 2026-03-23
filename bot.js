@@ -32,7 +32,7 @@ async function startBot() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         syncFullHistory: false
     });
 
