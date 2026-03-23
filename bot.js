@@ -9,7 +9,7 @@ const { Boom } = require("@hapi/boom");
 const express = require('express');
 const pino = require('pino');
 
-// --- SERVER PER RENDER (Per UptimeRobot) ---
+// --- SERVER PER RENDER (Mantiene il bot sveglio) ---
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('🛡️ Bot Anti-Nuke & Anti-Spam Online!'));
@@ -18,9 +18,9 @@ app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
 const nukeTracker = {};
 const spamTracker = {}; 
 const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA COL TUO NUMERO
-const ME_NUMBER = "6285137595799"; // 👈 IL TUO NUMERO PER IL PAIRING CODE
+const ME_NUMBER = "6285137595799"; // IL TUO NUMERO SENZA +
 
-// --- CONTATORE PER RATE LIMIT (60 al secondo) ---
+// --- SISTEMA DI RATE LIMITING NATIVO (60 msg/sec) ---
 let messagesProcessedThisSecond = 0;
 setInterval(() => { messagesProcessedThisSecond = 0; }, 1000);
 
@@ -32,30 +32,33 @@ async function startBot() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Mac OS", "Chrome", "121.0.6167.160"],
-        syncFullHistory: false
+        // Configurazione ottimizzata per WhatsApp Business (Emulazione MacOS)
+        browser: ["Mac OS", "Chrome", "122.0.6261.112"], 
+        syncFullHistory: false,
+        printQRInTerminal: false,
+        markOnlineOnConnect: true
     });
 
-    // --- SALVATAGGIO CREDENZIALI ---
+    // --- SALVATAGGIO SESSIONE ---
     sock.ev.on('creds.update', saveCreds);
 
-    // --- LOGICA PAIRING CODE ---
+    // --- LOGICA PAIRING CODE VELOCE ---
     if (!sock.authState.creds.registered) {
-        console.log(`\n\n--- ⏳ RICHIESTA CODICE IN CORSO PER: ${ME_NUMBER} ---`);
+        console.log(`\n\n--- ⏳ GENERAZIONE CODICE PER: ${ME_NUMBER} ---`);
         
+        // Ridotto a 6 secondi per evitare la scadenza del codice
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(ME_NUMBER);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 
                 console.log("\n********************************************");
-                console.log(`* 🔑 IL TUO CODICE È: ${code} *`);
+                console.log(`* 🔑 CODICE PAIRING: ${code} *`);
                 console.log("********************************************\n");
             } catch (error) {
-                console.error("❌ ERRORE CRITICO: WhatsApp ha rifiutato la richiesta.");
-                console.error(error);
+                console.error("❌ Errore pairing: Numero non valido o troppi tentativi.");
             }
-        }, 15000);
+        }, 6000);
     }
 
     // --- 1. ANTI-NUKE & ANTI-BOT (INGRESSI) ---
@@ -79,14 +82,14 @@ async function startBot() {
         }
     });
 
-    // --- 2. ANTI-SPAM, ANTI-LINK & RATE LIMIT ---
+    // --- 2. ANTI-SPAM (AGRESSIVO) & RATE LIMIT ---
     sock.ev.on("messages.upsert", async ({ messages }) => {
-        // --- APPLICAZIONE LIMITE 60 MSG/SEC ---
-        if (messagesProcessedThisSecond >= 60) return;
-        messagesProcessedThisSecond++;
-
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
+
+        // --- CONTROLLO RATE LIMIT (60 MSG/SEC) ---
+        if (messagesProcessedThisSecond >= 60) return;
+        messagesProcessedThisSecond++;
 
         const jid = m.key.remoteJid;
         if (!jid.endsWith('@g.us')) return;
@@ -97,7 +100,7 @@ async function startBot() {
 
         if (whitelist.includes(sender)) return;
 
-        // --- RILEVAMENTO BOT ESTERNI & LINK ---
+        // RILEVAMENTO BOT & LINK
         const isBot = msgId.startsWith("BAE5") || msgId.startsWith("3EB0") || msgId.length < 15;
         const hasLink = /(https?:\/\/[^\s]+)/g.test(text);
 
@@ -107,19 +110,18 @@ async function startBot() {
             return;
         }
 
-        // --- ANTI-SPAM AGGRESSIVO ---
+        // ANTI-SPAM
         if (!spamTracker[sender]) spamTracker[sender] = 0;
         spamTracker[sender]++;
 
         if (spamTracker[sender] >= 10) { 
-            console.log(`🚫 Spam rilevato da ${sender}`);
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
             
             const metadata = await sock.groupMetadata(jid);
             const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
             await sock.sendMessage(jid, { 
-                text: `🚫 *ANTI-SPAM* 🚫\nL'utente @${sender.split('@')[0]} è stato rimosso per spam eccessivo.`, 
+                text: `🚫 *ANTI-SPAM* 🚫\nUtente rimosso per spam eccessivo.`, 
                 mentions: admins 
             });
 
@@ -140,9 +142,7 @@ async function startBot() {
                 lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('✅ Connessione stabilita con successo!');
+            console.log('✅ BOT COLLEGATO E ONLINE!');
         }
     });
 }
-
-startBot().catch(err => console.error("Errore fatale:", err));
