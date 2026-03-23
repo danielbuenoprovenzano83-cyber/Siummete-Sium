@@ -6,22 +6,21 @@ const {
     fetchLatestBaileysVersion 
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
-const qrcode = require("qrcode-terminal");
 const express = require('express');
 const pino = require('pino');
 
 // --- SERVER PER RENDER (Per UptimeRobot) ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('🛡️ Bot Anti-Nuke Online!'));
+app.get('/', (req, res) => res.send('🛡️ Bot Anti-Nuke Online con Pairing Code!'));
 app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
 
 const nukeTracker = {};
 const spamTracker = {}; 
 const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA COL TUO NUMERO
+const ME_NUMBER = "6285137595799"; // 👈 INSERISCI QUI IL TUO NUMERO (es: 393471234567)
 
 async function startBot() {
-    // Salvataggio locale standard
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -29,22 +28,34 @@ async function startBot() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
-        browser: Browsers.ubuntu('Chrome'),
+        browser: Browsers.ubuntu('Chrome'), // NON CAMBIARE QUESTO
         syncFullHistory: false
     });
+
+    // --- LOGICA CODICE A 8 CIFRE ---
+    if (!sock.authState.creds.registered) {
+        console.log(`\n\n🔄 Generazione Pairing Code per il numero: ${ME_NUMBER}...`);
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(ME_NUMBER);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(`\n\n🔑 IL TUO CODICE DI COLLEGAMENTO È: ${code}\n\n`);
+            } catch (error) {
+                console.error("❌ Errore nella generazione del codice:", error);
+            }
+        }, 5000); // Aspetta 5 secondi per stabilizzare la connessione
+    }
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if (qr) qrcode.generate(qr, { small: true });
+        const { connection, lastDisconnect } = update;
         
         if (connection === "close") {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason !== DisconnectReason.loggedOut) startBot();
         } else if (connection === "open") {
-            console.log("🚀 BOT ONLINE! Scansiona il QR se è la prima volta.");
+            console.log("🚀 BOT ONLINE! Collegamento riuscito.");
         }
     });
 
@@ -77,14 +88,12 @@ async function startBot() {
 
         if (whitelist.includes(sender) || !jid.endsWith('@g.us')) return;
 
-        // Anti-Link e Firma Bot
         if (m.key.id.startsWith("BAE5") || /(https?:\/\/[^\s]+)/g.test(text)) {
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
             return;
         }
 
-        // Anti-Spam
         const spamKey = `${sender}_spam`;
         spamTracker[spamKey] = (spamTracker[spamKey] || 0) + 1;
         if (spamTracker[spamKey] >= 10) {
