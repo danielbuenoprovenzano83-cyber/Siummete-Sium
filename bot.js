@@ -1,37 +1,72 @@
 const { 
     default: makeWASocket, 
     DisconnectReason, 
-    Browsers, 
     useMultiFileAuthState,
     fetchLatestBaileysVersion 
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const express = require('express');
 const pino = require('pino');
+const mongoose = require('mongoose');
+const fs = require('fs');
+
+// --- CONFIGURAZIONE ---
+const MONGO_URL = process.env.MONGO_URL;
+const ME_NUMBER = "6285137595799"; 
+const whitelist = ["393331234567@s.whatsapp.net"];
 
 // --- SERVER PER RENDER ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('🛡️ Bot Anti-Nuke & Anti-Spam Online!'));
+app.get('/', (req, res) => res.send('🛡️ Bot Anti-Nuke Online con MongoDB!'));
 app.listen(port, () => console.log(`✅ [1/4] Server attivo sulla porta ${port}`));
+
+// --- SCHEMA MONGODB PER LA SESSIONE ---
+const SessionSchema = new mongoose.Schema({
+    id: { type: String, default: 'session' },
+    data: { type: String }
+});
+const Session = mongoose.model('Session', SessionSchema);
 
 const nukeTracker = {};
 const spamTracker = {}; 
-const whitelist = ["393331234567@s.whatsapp.net"]; // CAMBIA COL TUO NUMERO
-const ME_NUMBER = "6285137595799"; 
-
-// --- RATE LIMITING (60 msg/sec) ---
 let messagesProcessedThisSecond = 0;
 setInterval(() => { messagesProcessedThisSecond = 0; }, 1000);
 
-async function startBot() {
-    console.log("🚀 [2/4] Avvio procedura Baileys...");
-    
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    console.log("📂 [3/4] Sessione caricata.");
+// Funzione per salvare/caricare file da MongoDB
+async function syncSession(action) {
+    if (action === 'load') {
+        const doc = await Session.findOne({ id: 'session' });
+        if (doc) {
+            if (!fs.existsSync('./auth_info')) fs.mkdirSync('./auth_info');
+            const files = JSON.parse(doc.data);
+            for (const [file, content] of Object.entries(files)) {
+                fs.writeFileSync(`./auth_info/${file}`, content);
+            }
+            console.log("📂 Sessione recuperata da MongoDB");
+        }
+    } else {
+        if (fs.existsSync('./auth_info')) {
+            const files = fs.readdirSync('./auth_info');
+            const sessionData = {};
+            files.forEach(file => {
+                if (file.endsWith('.json')) sessionData[file] = fs.readFileSync(`./auth_info/${file}`, 'utf-8');
+            });
+            await Session.findOneAndUpdate({ id: 'session' }, { data: JSON.stringify(sessionData) }, { upsert: true });
+        }
+    }
+}
 
+async function startBot() {
+    console.log("🚀 [2/4] Connessione a MongoDB...");
+    try {
+        await mongoose.connect(MONGO_URL);
+        await syncSession('load');
+    } catch (e) { console.log("⚠️ Errore DB, procedo in locale"); }
+
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
-    console.log(`🌐 [4/4] Connessione a WhatsApp v${version}...`);
+    console.log(`🌐 [3/4] WhatsApp v${version}`);
 
     const sock = makeWASocket({
         version,
@@ -42,26 +77,26 @@ async function startBot() {
         markOnlineOnConnect: true
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    // Salva le credenziali sia in locale che su MongoDB
+    sock.ev.on('creds.update', async () => {
+        await saveCreds();
+        await syncSession('save');
+    });
 
-    // --- LOGICA PAIRING CODE OTTIMIZZATA ---
+    // --- PAIRING CODE ---
     if (!sock.authState.creds.registered) {
-        console.log(`\n⚠️ DISPOSITIVO NON COLLEGATO! Richiesta codice per: ${ME_NUMBER}`);
-        
+        console.log(`\n⚠️ RICHIESTA CODICE PER: ${ME_NUMBER}`);
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(ME_NUMBER);
-                code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log("\n********************************************");
-                console.log(`* 🔑 IL TUO CODICE: ${code} *`);
-                console.log("********************************************\n");
-            } catch (error) {
-                console.error("❌ Errore Pairing: WhatsApp ha rifiutato la richiesta (Rate Limit o IP).");
-            }
-        }, 5000); // 5 secondi di attesa per stabilizzare il socket
+                console.log(`\n********************************************`);
+                console.log(`* 🔑 CODICE PAIRING: ${code?.match(/.{1,4}/g)?.join("-")} *`);
+                console.log(`********************************************\n`);
+            } catch (error) { console.error("❌ Errore Pairing"); }
+        }, 6000);
     }
 
-    // --- 1. ANTI-NUKE & ANTI-BOT ---
+    // --- 1. ANTI-NUKE ---
     sock.ev.on("group-participants.update", async (update) => {
         const { id, participants, action, author } = update;
         if (action === "add") {
@@ -114,34 +149,29 @@ async function startBot() {
         if (spamTracker[sender] >= 10) { 
             await sock.sendMessage(jid, { delete: m.key });
             await sock.groupParticipantsUpdate(jid, [sender], "remove");
-            
             const metadata = await sock.groupMetadata(jid);
             const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
             await sock.sendMessage(jid, { 
-                text: `🚫 *ANTI-SPAM* 🚫\nUtente rimosso per spam eccessivo.`, 
+                text: `🚫 *ANTI-SPAM*\nUtente rimosso per spam eccessivo.`, 
                 mentions: admins 
             });
             delete spamTracker[sender];
             return;
         }
-
-        setTimeout(() => {
-            if (spamTracker[sender] > 0) spamTracker[sender]--;
-        }, 10000);
+        setTimeout(() => { if (spamTracker[sender] > 0) spamTracker[sender]--; }, 10000);
     });
 
-    // --- GESTIONE CONNESSIONE ---
+    // --- CONNESSIONE ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom) ? 
                 lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
-            console.log("🔄 Connessione chiusa. Riconnessione...");
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('✅ BOT COLLEGATO E ONLINE!');
+            console.log('✅ [4/4] BOT ONLINE E SINCRONIZZATO!');
         }
     });
 }
 
-startBot().catch(err => console.error("Errore critico:", err));
+startBot().catch(err => console.error("Errore fatale:", err));
