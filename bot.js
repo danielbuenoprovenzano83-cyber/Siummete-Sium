@@ -32,7 +32,7 @@ async function startBot() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        browser: ["Mac OS", "Chrome", "121.0.6167.160"],
         syncFullHistory: false
     });
 
