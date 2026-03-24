@@ -164,39 +164,55 @@ if (metadata && !isAdmin && !whitelist.includes(sender)) {
 
             switch(command) {
                 case 'help':
-                    await sock.sendMessage(jid, { text: `📜 *MENU ADMIN*\n\n!warn @user - Warn manuale\n!ban @user - Ban e Blacklist\n!antilink on/off - Attiva/Disattiva Anti-Link\n!whitelist add/remove @user\n!list - Mostra Banlist e Whitelist` });
+                    await sock.sendMessage(jid, { text: `🛡️ *COMANDI*\n\n!warn @user - Warn manuale\n!resetwarn @user - Resetta i warn\n!ban @user - Ban e Blacklist\n!unban @user - Sblocca da Blacklist\n!antilink on/off - Attiva/Disattiva\n!whitelist add @user - Aggiungi\n!whitelist remove @user - Rimuovi\n!list - Mostra Banlist e Whitelist` });
                     break;
                 case 'warn':
-                    if (target) await handleViolation(jid, target, "Manuale da Admin");
+                    if (mentioned) await handleViolation(jid, mentioned, "Manuale da Admin");
+                    break;
+                case 'resetwarn':
+                    if (mentioned) {
+                        await UserData.findOneAndUpdate({ jid: mentioned }, { warns: 0 });
+                        await sock.sendMessage(jid, { text: `✅ Warn resettati per @${mentioned.split('@')[0]}`, mentions: [mentioned] });
+                    }
                     break;
                 case 'ban':
-                    if (target) {
-                        await sock.groupParticipantsUpdate(jid, [target], "remove");
-                        await UserData.findOneAndUpdate({ jid: target }, { isBlacklisted: true }, { upsert: true });
+                    if (mentioned) {
+                        await sock.groupParticipantsUpdate(jid, [mentioned], "remove");
+                        await UserData.findOneAndUpdate({ jid: mentioned }, { isBlacklisted: true }, { upsert: true });
+                        await sock.sendMessage(jid, { text: `🚫 @${mentioned.split('@')[0]} bannato e blacklistato.`, mentions: [mentioned] });
+                    }
+                    break;
+                case 'unban':
+                    if (mentioned) {
+                        await UserData.findOneAndUpdate({ jid: mentioned }, { isBlacklisted: false, warns: 0 });
+                        await sock.sendMessage(jid, { text: `✅ @${mentioned.split('@')[0]} rimosso dalla blacklist.`, mentions: [mentioned] });
                     }
                     break;
                 case 'antilink':
                     antiLinkActive = args[0] === 'on';
-                    await sock.sendMessage(jid, { text: `🔗 Anti-Link: ${antiLinkActive ? 'ATTIVO' : 'DISATTIVATO'}` });
+                    await sock.sendMessage(jid, { text: `🔗 Anti-Link: ${antiLinkActive ? 'ON' : 'OFF'}` });
                     break;
                 case 'whitelist':
-                    if (!target) return;
+                    if (!mentioned) return;
                     if (args[0] === 'add') {
-                        whitelist.push(target);
-                        await UserData.findOneAndUpdate({ jid: target }, { isWhitelisted: true }, { upsert: true });
-                    } else {
-                        whitelist = whitelist.filter(i => i !== target);
-                        await UserData.findOneAndUpdate({ jid: target }, { isWhitelisted: false });
+                        if (!whitelist.includes(mentioned)) whitelist.push(mentioned);
+                        await UserData.findOneAndUpdate({ jid: mentioned }, { isWhitelisted: true }, { upsert: true });
+                        await sock.sendMessage(jid, { text: `⚪ @${mentioned.split('@')[0]} aggiunto alla Whitelist.`, mentions: [mentioned] });
+                    } else if (args[0] === 'remove') {
+                        whitelist = whitelist.filter(i => i !== mentioned);
+                        await UserData.findOneAndUpdate({ jid: mentioned }, { isWhitelisted: false });
+                        await sock.sendMessage(jid, { text: `❌ @${mentioned.split('@')[0]} rimosso dalla Whitelist.`, mentions: [mentioned] });
                     }
-                    await sock.sendMessage(jid, { text: `✅ Whitelist aggiornata.` });
                     break;
                 case 'list':
                     const banned = await UserData.find({ isBlacklisted: true });
                     const whited = await UserData.find({ isWhitelisted: true });
-                    let msg = `🚫 *BANLIST*:\n${banned.map(u => "- " + u.jid).join('\n')}\n\n⚪ *WHITELIST*:\n${whited.map(u => "- " + u.jid).join('\n')}`;
-                    await sock.sendMessage(jid, { text: msg });
+                    let listMsg = `🚫 *BANLIST (Blacklist)*:\n${banned.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Nessuno'}\n\n`;
+                    listMsg += `⚪ *WHITELIST*:\n${whited.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Nessuno'}`;
+                    await sock.sendMessage(jid, { text: listMsg });
                     break;
             }
+
         }
     });
 
