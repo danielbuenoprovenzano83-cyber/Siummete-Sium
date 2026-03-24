@@ -140,12 +140,13 @@ async function startBot() {
         const isBotAdmin = metadata ? metadata.participants.find(p => p.id === sock.user.id.split(':')[0] + '@s.whatsapp.net')?.admin : false;
         const isAdmin = metadata ? metadata.participants.find(p => p.id === sender)?.admin : false;
 
-        // Anti-Link & Anti-Spam
-        if (metadata && !isAdmin && !whitelist.includes(sender)) {
-            if (antiLinkActive && /(https?:\/\/[^\s]+)/g.test(text)) {
-                await sock.sendMessage(jid, { delete: m.key });
-                return await handleViolation(jid, sender, "Invio link non autorizzato");
-            }
+// --- COPIA E SOSTITUISCI QUESTO BLOCCO ---
+if (metadata && !isAdmin && !whitelist.includes(sender)) {
+    // Controllo Anti-Link
+    if (antiLinkActive && /(https?:\/\/[^\s]+)/g.test(text)) {
+        await sock.sendMessage(jid, { delete: m.key }); // CANCELLA IL LINK
+        return await handleViolation(jid, sender, "Invio link non autorizzato"); // WARNA L'UTENTE
+    }
 
             spamTracker[sender] = (spamTracker[sender] || 0) + 1;
             if (spamTracker[sender] === 5) await handleViolation(jid, sender, "Spam rilevato (5 messaggi)");
