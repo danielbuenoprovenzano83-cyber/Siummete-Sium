@@ -162,40 +162,45 @@ async function startBot() {
             const args = text.slice(1).split(/ +/);
             const command = args.shift().toLowerCase();
             
-            // Logica Target: Tag o Numero manuale
+            // Logica Target: Tag o Numero manuale (estrae il numero se presente tra gli argomenti)
             let target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target && args[0]) {
-                const rawNum = args[0].replace(/[^0-9]/g, '');
+            if (!target && args.length > 0) {
+                // Cerchiamo un argomento che sembri un numero di telefono
+                const rawNum = args.join("").replace(/[^0-9]/g, '');
                 if (rawNum.length >= 10) target = rawNum + '@s.whatsapp.net';
             }
 
             switch(command) {
                 case 'help':
                     const helpMsg = `🛡️ *HELP ADMIN*\n\n` +
-                                   `•!warn @tag - Warn utente\n
-` +
-                                   `•!resetwarn @tag - Resetta warn\n
-` +
-                                   `•!ban @tag - Ban e Blacklist\n
-` +
-                                   `•!unban @tag/numero - Sblocca\n
-` +
-                                   `•!antilink on/off - Attiva/Disattiva\n
-` +
-                                   `•!whitelist add @tag - Proteggi admin/utente\n
- ` +
-                                   `•!whitelist remove @tag - Togli protezione\n
- ` +
-                                   `•!list - Vedi Banlist e Whitelist`;
+                                   `• !warn @tag - Warn utente\n` +
+                                   `• !resetwarn @tag - Resetta warn\n` +
+                                   `• !ban @tag - Ban e Blacklist\n` +
+                                   `• !unban @tag/numero - Sblocca\n` +
+                                   `• !antilink on/off - Attiva/Disattiva\n` +
+                                   `• !whitelist add @tag - Proteggi admin/utente\n` +
+                                   `• !whitelist remove @tag - Togli protezione\n` +
+                                   `• !list - Vedi Banlist e Whitelist`;
                     await sock.sendMessage(jid, { text: helpMsg });
                     break;
 
                 case 'unban':
                     if (target) {
-                        await UserGroupData.findOneAndUpdate({ jid: target, groupId: jid }, { isBlacklisted: false, warns: 0 }, { upsert: true });
-                        await sock.sendMessage(jid, { text: `✅ Utente ${target.split('@')[0]} rimosso dalla blacklist di questo gruppo.` });
+                        // Usiamo deleteOne per assicurarci che il record venga rimosso fisicamente
+                        // o aggiorniamo isBlacklisted a false in modo esplicito
+                        const result = await UserGroupData.findOneAndUpdate(
+                            { jid: target, groupId: jid }, 
+                            { $set: { isBlacklisted: false, warns: 0 } },
+                            { new: true }
+                        );
+
+                        if (result) {
+                            await sock.sendMessage(jid, { text: `✅ Utente ${target.split('@')[0]} rimosso con successo. Ora può rientrare.` });
+                        } else {
+                            await sock.sendMessage(jid, { text: "⚠️ Utente non trovato nel database." });
+                        }
                     } else {
-                        await sock.sendMessage(jid, { text: "⚠️ Usa: !unban @tag o !unban numero" });
+                        await sock.sendMessage(jid, { text: "⚠️ Specifica un numero valido. Es: !unban 39392..." });
                     }
                     break;
 
@@ -235,7 +240,8 @@ async function startBot() {
                     break;
 
                 case 'antilink': 
-                    antiLinkActive = args[0]?.toLowerCase() === 'on'; 
+                    const status = args[0]?.toLowerCase();
+                    antiLinkActive = (status === 'on'); 
                     await sock.sendMessage(jid, { text: `🔗 Anti-Link: ${antiLinkActive ? 'ATTIVO' : 'DISATTIVATO'}` }); 
                     break;
             }
@@ -253,4 +259,3 @@ async function startBot() {
 }
 
 startBot().catch(console.error);
-
