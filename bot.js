@@ -173,19 +173,19 @@ async function startBot() {
                 case 'help':
                     const helpMsg = `🛡️ *HELP ADMIN*\n\n` +
                                    `•!warn @tag - Warn utente\n
-                                   ` +
+` +
                                    `•!resetwarn @tag - Resetta warn\n
-                                   ` +
+` +
                                    `•!ban @tag - Ban e Blacklist\n
-                                   ` +
+` +
                                    `•!unban @tag/numero - Sblocca\n
-                                   ` +
+` +
                                    `•!antilink on/off - Attiva/Disattiva\n
-                                   ` +
+` +
                                    `•!whitelist add @tag - Proteggi admin/utente\n
-                                   ` +
+ ` +
                                    `•!whitelist remove @tag - Togli protezione\n
-                                   ` +
+ ` +
                                    `•!list - Vedi Banlist e Whitelist`;
                     await sock.sendMessage(jid, { text: helpMsg });
                     break;
