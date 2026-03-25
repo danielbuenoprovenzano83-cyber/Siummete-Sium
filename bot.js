@@ -94,15 +94,6 @@ async function startBot() {
         const metadata = await sock.groupMetadata(id);
         const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
 
-        if (action === "promote") {
-            for (let p of participants) {
-                await UserGroupData.findOneAndUpdate({ jid: p, groupId: id }, { adminSince: new Date() }, { upsert: true });
-                for (let admin of admins) {
-                    await sock.sendMessage(admin, { text: `🔔 *NUOVO ADMIN*\nL'utente @${p.split('@')[0]} è stato promosso in "${metadata.subject}".\nPotrà usare i comandi tra 24 ore.`, mentions: [p] });
-                }
-            }
-        }
-
         if (action === "add") {
             for (let p of participants) {
                 const user = await UserGroupData.findOne({ jid: p, groupId: id });
