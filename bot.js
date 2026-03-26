@@ -10,20 +10,18 @@ const pino = require('pino');
 const mongoose = require('mongoose');
 const fs = require('fs');
 
-// --- CONFIGURAZIONE ---
 const MONGO_URL = process.env.MONGO_URL;
 const ME_NUMBER = "6285137595799"; 
 let antiLinkActive = true;
 
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('🛡️ Security Bot Multi-Group V3 Online'));
-app.listen(port, () => console.log(`✅ Server attivo sulla porta ${port}`));
+app.get('/', (req, res) => res.send('🛡️ Security Bot V3.3 Online'));
+app.listen(port, () => console.log(`✅ Server attivo`));
 
-// --- SCHEMA MONGODB ---
 const Session = mongoose.model('Session', new mongoose.Schema({ id: String, data: String }));
 const UserGroupData = mongoose.model('UserGroupData', new mongoose.Schema({
-    jid: String,
+    jid: String, 
     groupId: String,
     warns: { type: Number, default: 0 },
     lastWarn: Date,
@@ -34,6 +32,13 @@ const UserGroupData = mongoose.model('UserGroupData', new mongoose.Schema({
 
 const nukeTracker = {};
 const spamTracker = {};
+
+// FUNZIONE DI PULIZIA TOTALE (Matematica)
+const clean = (str) => {
+    if (!str) return "";
+    let s = String(str).split('@')[0]; // Prende la parte prima della @
+    return s.replace(/[^0-9]/g, ''); // Rimuove TUTTO tranne i numeri
+};
 
 async function syncSession(action) {
     if (action === 'load') {
@@ -60,35 +65,24 @@ async function startBot() {
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: 'silent' }),
-        browser: ["Mac OS", "Chrome", "122.0.6261.112"],
-        printQRInTerminal: false
+        version, auth: state, logger: pino({ level: 'silent' }),
+        browser: ["Mac OS", "Chrome", "122.0.6261.112"]
     });
 
     sock.ev.on('creds.update', async () => { await saveCreds(); await syncSession('save'); });
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
-            try {
-                let code = await sock.requestPairingCode(ME_NUMBER);
-                console.log(`🔑 CODICE PAIRING: ${code?.match(/.{1,4}/g)?.join("-")}`);
-            } catch (e) { console.error("Errore pairing"); }
-        }, 6000);
-    }
-
     const handleViolation = async (jid, participant, reason) => {
-        let user = await UserGroupData.findOne({ jid: participant, groupId: jid }) || new UserGroupData({ jid: participant, groupId: jid });
+        const pNum = clean(participant);
+        let user = await UserGroupData.findOne({ jid: pNum, groupId: jid }) || new UserGroupData({ jid: pNum, groupId: jid });
         if (user.lastWarn && (new Date() - user.lastWarn > 30 * 24 * 60 * 60 * 1000)) user.warns = 0;
         user.warns += 1;
         user.lastWarn = new Date();
         if (user.warns >= 3) {
             user.isBlacklisted = true;
             await sock.groupParticipantsUpdate(jid, [participant], "remove");
-            await sock.sendMessage(jid, { text: `🚫 @${participant.split('@')[0]} BANNATO (3/3 Warn).\nMotivo: ${reason}`, mentions: [participant] });
+            await sock.sendMessage(jid, { text: `🚫 @${pNum} BANNATO (3/3 Warn). Motivo: ${reason}`, mentions: [participant] });
         } else {
-            await sock.sendMessage(jid, { text: `⚠️ @${participant.split('@')[0]} WARNATO (${user.warns}/3).\nMotivo: ${reason}`, mentions: [participant] });
+            await sock.sendMessage(jid, { text: `⚠️ @${pNum} WARNATO (${user.warns}/3). Motivo: ${reason}`, mentions: [participant] });
         }
         await user.save();
     };
@@ -100,17 +94,14 @@ async function startBot() {
 
         if (action === "promote") {
             for (let p of participants) {
-                await UserGroupData.findOneAndUpdate({ jid: p, groupId: id }, { adminSince: new Date() }, { upsert: true });
-                await sock.sendMessage(id, { 
-                    text: `🔔 *NUOVO ADMIN*: @${p.split('@')[0]}\n\nAttenzione Amministratori: l'utente potrà usare i comandi tra 24 ore.`, 
-                    mentions: [p, ...admins] 
-                });
+                await UserGroupData.findOneAndUpdate({ jid: clean(p), groupId: id }, { adminSince: new Date() }, { upsert: true });
+                await sock.sendMessage(id, { text: `🔔 *PROMOZIONE*: @${clean(p)} potrà usare i comandi tra 24h.`, mentions: [p, ...admins] });
             }
         }
 
         if (action === "add") {
             for (let p of participants) {
-                const user = await UserGroupData.findOne({ jid: p, groupId: id });
+                const user = await UserGroupData.findOne({ jid: clean(p), groupId: id });
                 if (user?.isBlacklisted || ["212", "92", "234", "254"].some(pre => p.startsWith(pre))) {
                     await sock.groupParticipantsUpdate(id, [p], "remove");
                 }
@@ -118,16 +109,13 @@ async function startBot() {
         }
 
         if (action === "remove" && author) {
-            const userAuthor = await UserGroupData.findOne({ jid: author, groupId: id });
+            const userAuthor = await UserGroupData.findOne({ jid: clean(author), groupId: id });
             if (userAuthor?.isWhitelisted) return;
             nukeTracker[author] = (nukeTracker[author] || 0) + participants.length;
             if (nukeTracker[author] > 3) {
                 await sock.groupParticipantsUpdate(id, [author], "remove");
-                await UserGroupData.findOneAndUpdate({ jid: author, groupId: id }, { isBlacklisted: true }, { upsert: true });
-                await sock.sendMessage(id, { 
-                    text: `🚨 *ALLERTA NUKE*\n\nL'utente @${author.split('@')[0]} è stato blacklistato per nuke.`, 
-                    mentions: [author, ...admins] 
-                });
+                await UserGroupData.findOneAndUpdate({ jid: clean(author), groupId: id }, { isBlacklisted: true }, { upsert: true });
+                await sock.sendMessage(id, { text: `🚨 *NUKE RILEVATO*: @${clean(author)} blacklistato.`, mentions: [author, ...admins] });
             }
             setTimeout(() => delete nukeTracker[author], 30000);
         }
@@ -143,76 +131,72 @@ async function startBot() {
         
         const metadata = await sock.groupMetadata(jid);
         const isAdmin = !!metadata.participants.find(p => p.id === sender && p.admin);
-        const userGroup = await UserGroupData.findOne({ jid: sender, groupId: jid });
+        const userGroup = await UserGroupData.findOne({ jid: clean(sender), groupId: jid });
 
-        if (!userGroup?.isWhitelisted) {
+        // PROTEZIONE SPAM E LINK
+        if (!isAdmin && !userGroup?.isWhitelisted) {
             if (antiLinkActive && /(https?:\/\/[^\s]+)/g.test(text)) {
                 await sock.sendMessage(jid, { delete: m.key });
-                return await handleViolation(jid, sender, "Link non autorizzato");
+                return await handleViolation(jid, sender, "Link");
             }
             spamTracker[sender] = (spamTracker[sender] || 0) + 1;
             if (spamTracker[sender] === 5) await handleViolation(jid, sender, "Spam (5 msg)");
             if (spamTracker[sender] >= 10) {
                 await sock.groupParticipantsUpdate(jid, [sender], "remove");
-                await UserGroupData.findOneAndUpdate({ jid: sender, groupId: jid }, { isBlacklisted: true }, { upsert: true });
+                await UserGroupData.findOneAndUpdate({ jid: clean(sender), groupId: jid }, { isBlacklisted: true }, { upsert: true });
             }
             setTimeout(() => { if(spamTracker[sender]>0) spamTracker[sender]--; }, 10000);
         }
 
+        // COMANDI
         if (text.startsWith("!") && isAdmin) {
-            let adminData = await UserGroupData.findOne({ jid: sender, groupId: jid });
-            const hoursActive = adminData?.adminSince ? (new Date() - adminData.adminSince) / (1000 * 60 * 60) : 25;
-            if (hoursActive < 24) return await sock.sendMessage(jid, { text: "⏳ Attesa 24h dalla promozione." });
+            let adminData = await UserGroupData.findOne({ jid: clean(sender), groupId: jid });
+            if (adminData?.adminSince && (new Date() - adminData.adminSince) / (1000 * 60 * 60) < 24) {
+                return await sock.sendMessage(jid, { text: "⏳ Attesa 24h per i comandi." });
+            }
 
             const args = text.slice(1).split(/ +/);
             const command = args.shift().toLowerCase();
             
-            let target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target && args[0]) {
-                const rawNum = args[0].replace(/[^0-9]/g, '');
-                if (rawNum.length >= 8) target = rawNum + '@s.whatsapp.net';
-            }
+            let tJid = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            let tNum = tJid ? clean(tJid) : clean(args[0]);
 
             switch(command) {
                 case 'help':
-                    await sock.sendMessage(jid, { text: `🛡️ *HELP ADMIN*\n\n• !warn @tag\n• !resetwarn @tag\n• !ban @tag\n• !unban numero\n• !antilink on/off\n• !whitelist add/remove @tag\n• !list` });
+                    await sock.sendMessage(jid, { text: `🛡️ *HELP*\n!warn @tag\n!resetwarn @tag\n!ban @tag\n!unban numero\n!list\n!whitelist add @tag\n!antilink on/off` });
                     break;
                 case 'unban':
-                    if (target) {
-                        await UserGroupData.deleteMany({ jid: target, groupId: jid });
-                        await sock.sendMessage(jid, { text: `✅ ID ${target.split('@')[0]} rimosso fisicamente dalla blacklist.` });
-                    }
-                    break;
-                case 'whitelist':
-                    if (target && args[0]) {
-                        const isAdd = args[0].toLowerCase() === 'add';
-                        await UserGroupData.findOneAndUpdate({ jid: target, groupId: jid }, { isWhitelisted: isAdd }, { upsert: true });
-                        await sock.sendMessage(jid, { text: `✅ Whitelist ${isAdd ? 'OK' : 'OFF'} per @${target.split('@')[0]}`, mentions: [target] });
+                    if (tNum) {
+                        // CANCELLAZIONE FISICA (Infallibile)
+                        await UserGroupData.deleteMany({ jid: tNum, groupId: jid });
+                        await sock.sendMessage(jid, { text: `✅ Numero ${tNum} eliminato definitivamente dalla blacklist.` });
                     }
                     break;
                 case 'list':
                     const banned = await UserGroupData.find({ groupId: jid, isBlacklisted: true });
                     const whited = await UserGroupData.find({ groupId: jid, isWhitelisted: true });
-                    let msg = `🚫 *BANLIST*:\n${banned.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Vuota'}\n\n⚪ *WHITELIST*:\n${whited.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Vuota'}`;
-                    await sock.sendMessage(jid, { text: msg });
+                    let l = `🚫 *BANLIST*:\n${banned.map(u => "- " + u.jid).join('\n') || 'Vuota'}\n\n⚪ *WHITELIST*:\n${whited.map(u => "- " + u.jid).join('\n') || 'Vuota'}`;
+                    await sock.sendMessage(jid, { text: l });
                     break;
-                case 'warn': if(target) await handleViolation(jid, target, "Manuale"); break;
-                case 'resetwarn': if(target) { await UserGroupData.updateMany({ jid: target, groupId: jid }, { $set: { warns: 0 } }); await sock.sendMessage(jid, { text: "✅ Reset warn." }); } break;
-                case 'ban': if(target) { 
-                    try { await sock.groupParticipantsUpdate(jid, [target], "remove"); } catch(e) {}
-                    await UserGroupData.findOneAndUpdate({ jid: target, groupId: jid }, { isBlacklisted: true, warns: 3 }, { upsert: true }); 
+                case 'warn': if(tNum) await handleViolation(jid, tNum + "@s.whatsapp.net", "Manuale"); break;
+                case 'resetwarn': if(tNum) { await UserGroupData.updateMany({ jid: tNum, groupId: jid }, { $set: { warns: 0 } }); await sock.sendMessage(jid, { text: "✅ Warn resettati." }); } break;
+                case 'ban': if(tNum) { 
+                    try { await sock.groupParticipantsUpdate(jid, [tNum + "@s.whatsapp.net"], "remove"); } catch(e) {}
+                    await UserGroupData.findOneAndUpdate({ jid: tNum, groupId: jid }, { isBlacklisted: true, warns: 3 }, { upsert: true }); 
                 } break;
-                case 'antilink': antiLinkActive = args[0]?.toLowerCase() === 'on'; await sock.sendMessage(jid, { text: `🔗 Anti-Link: ${antiLinkActive ? 'ON' : 'OFF'}` }); break;
+                case 'whitelist':
+                    if (tNum && args[0]) {
+                        const isA = args[0].toLowerCase() === 'add';
+                        await UserGroupData.findOneAndUpdate({ jid: tNum, groupId: jid }, { isWhitelisted: isA }, { upsert: true });
+                        await sock.sendMessage(jid, { text: `⚪ Whitelist ${isA ? 'OK' : 'OFF'} per ${tNum}` });
+                    }
+                    break;
+                case 'antilink': antiLinkActive = args[0]?.toLowerCase() === 'on'; await sock.sendMessage(jid, { text: `🔗 Anti-Link: ${args[0]}` }); break;
             }
         }
     });
 
-    sock.ev.on('connection.update', (u) => { 
-        if (u.connection === 'close') {
-            const reconnect = (u.lastDisconnect.error instanceof Boom) ? u.lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
-            if (reconnect) startBot();
-        } else if (u.connection === 'open') console.log('✅ BOT ONLINE');
-    });
+    sock.ev.on('connection.update', (u) => { if (u.connection === 'close') startBot(); });
 }
 
 startBot().catch(console.error);
