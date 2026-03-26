@@ -18,7 +18,7 @@ const groupCache = new Map();
 
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('🛡️ Security Bot V5.1 Final Online'));
+app.get('/', (req, res) => res.send('🛡️ Security Bot V5.2 Full Control Online'));
 app.listen(port, () => console.log(`✅ Server attivo`));
 
 // --- SCHEMA MONGODB ---
@@ -105,7 +105,7 @@ async function startBot() {
         if (action === "promote") {
             for (let p of participants) {
                 await UserGroupData.findOneAndUpdate({ jid: clean(p), groupId: id }, { adminSince: new Date() }, { upsert: true });
-                await sock.sendMessage(id, { text: `🔔 *PROMO*: @${clean(p)} attesa 24h.`, mentions: [p, ...admins] });
+                await sock.sendMessage(id, { text: `🔔 *PROMO*: @${clean(p)} attesa 24h per i comandi.`, mentions: [p, ...admins] });
             }
         }
         if (action === "add") {
@@ -135,15 +135,16 @@ async function startBot() {
         const sender = m.key.participant || jid;
         const text = (m.message.conversation || m.message.extendedTextMessage?.text || "").trim();
         
-        const metadata = await getMetadata(jid);
-        const isAdmin = !!metadata.participants.find(p => p.id === sender && p.admin);
         const userGroup = await UserGroupData.findOne({ jid: clean(sender), groupId: jid });
 
-        if (!isAdmin && !userGroup?.isWhitelisted) {
+        // CONTROLLI ATTIVI PER TUTTI (Admin inclusi), tranne chi è in Whitelist
+        if (!userGroup?.isWhitelisted) {
+            // Anti-Link
             if (antiLinkActive && /(https?:\/\/[^\s]+)/g.test(text)) {
                 await sock.sendMessage(jid, { delete: m.key });
-                return await handleViolation(jid, sender, "Link");
+                return await handleViolation(jid, sender, "Link non autorizzato");
             }
+            // Anti-Spam
             spamTracker[sender] = (spamTracker[sender] || 0) + 1;
             if (spamTracker[sender] === 5) await handleViolation(jid, sender, "Spam (5 msg)");
             if (spamTracker[sender] >= 10) {
@@ -153,10 +154,14 @@ async function startBot() {
             setTimeout(() => { if(spamTracker[sender]>0) spamTracker[sender]--; }, 10000);
         }
 
+        // COMANDI (Solo per Admin da più di 24 ore)
+        const metadata = await getMetadata(jid);
+        const isAdmin = !!metadata.participants.find(p => p.id === sender && p.admin);
+
         if (text.startsWith("!") && isAdmin) {
             let adminData = await UserGroupData.findOne({ jid: clean(sender), groupId: jid });
             const hActive = adminData?.adminSince ? (new Date() - adminData.adminSince) / 3600000 : 25;
-            if (hActive < 24) return;
+            if (hActive < 24) return await sock.sendMessage(jid, { text: "⏳ Sei admin da meno di 24h. Comandi disabilitati." });
 
             const args = text.slice(1).split(/ +/);
             const command = args.shift().toLowerCase();
@@ -184,8 +189,7 @@ async function startBot() {
                     break;
                 case 'whitelist':
                     if (target && args[0]) {
-                        const action = args[0].toLowerCase();
-                        const isAdd = action === 'add';
+                        const isAdd = args[0].toLowerCase() === 'add';
                         await UserGroupData.findOneAndUpdate({ jid: clean(target), groupId: jid }, { isWhitelisted: isAdd }, { upsert: true });
                         await sock.sendMessage(jid, { text: `⚪ Whitelist ${isAdd ? 'ATTIVA' : 'REMOVATA'} per ${clean(target)}` });
                     }
