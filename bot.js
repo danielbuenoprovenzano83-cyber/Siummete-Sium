@@ -105,7 +105,7 @@ async function startBot() {
         if (action === "promote") {
             for (let p of participants) {
                 await UserGroupData.findOneAndUpdate({ jid: clean(p), groupId: id }, { adminSince: new Date() }, { upsert: true });
-                await sock.sendMessage(id, { text: `🔔 *ATTENZIONE! NUOVO ADMIN!*: @${clean(p)} attesa 24h per i comandi.`, mentions: [p, ...admins] });
+                await sock.sendMessage(id, { text: `🔔 *ATTENZIONE! NUOVO ADMIN!*: @${clean(p)} non potrai usare i comandi prima di 24H.`, mentions: [p, ...admins] });
             }
         }
         if (action === "add") {
@@ -121,7 +121,7 @@ async function startBot() {
             if (nukeTracker[author] > 3) {
                 try { await sock.groupParticipantsUpdate(id, [author], "remove"); } catch(e) {}
                 await UserGroupData.findOneAndUpdate({ jid: clean(author), groupId: id }, { isBlacklisted: true }, { upsert: true });
-                await sock.sendMessage(id, { text: `🚨 *NUKE*: @${clean(author)} blacklistato.`, mentions: [author, ...admins] });
+                await sock.sendMessage(id, { text: `🚨 *ALLERTA NUKE!!!*: @${clean(author)} blacklistato.`, mentions: [author, ...admins] });
             }
             setTimeout(() => delete nukeTracker[author], 30000);
         }
