@@ -105,7 +105,7 @@ async function startBot() {
         if (action === "promote") {
             for (let p of participants) {
                 await UserGroupData.findOneAndUpdate({ jid: clean(p), groupId: id }, { adminSince: new Date() }, { upsert: true });
-                await sock.sendMessage(id, { text: `🔔 *PROMO*: @${clean(p)} attesa 24h per i comandi.`, mentions: [p, ...admins] });
+                await sock.sendMessage(id, { text: `🔔 *ATTENZIONE! NUOVO ADMIN!*: @${clean(p)} attesa 24h per i comandi.`, mentions: [p, ...admins] });
             }
         }
         if (action === "add") {
@@ -169,12 +169,12 @@ async function startBot() {
 
             switch(command) {
                 case 'help':
-                    await sock.sendMessage(jid, { text: `🛡️ *HELP*\n!warn @tag\n!resetwarn @tag\n!ban @tag\n!unban numero\n!list\n!whitelist add @tag\n!whitelist remove @tag\n!antilink on/off\n!clearblacklist` });
+                    await sock.sendMessage(jid, { text: `🛡️ *COMANDI ADMIN*\n!warn @tag\n!resetwarn @tag\n!ban @tag\n!unban numero\n!list\n!whitelist add @tag\n!whitelist remove @tag\n!antilink on/off\n!clearblacklist` });
                     break;
                 case 'unban':
                     if (target) {
                         await UserGroupData.deleteMany({ jid: clean(target), groupId: jid });
-                        await sock.sendMessage(jid, { text: `✅ Sbloccato ${clean(target)}` });
+                        await sock.sendMessage(jid, { text: `✅ ${clean(target)} è stato sbannato` });
                     }
                     break;
                 case 'clearblacklist':
@@ -191,13 +191,13 @@ async function startBot() {
                     if (target && args[0]) {
                         const isAdd = args[0].toLowerCase() === 'add';
                         await UserGroupData.findOneAndUpdate({ jid: clean(target), groupId: jid }, { isWhitelisted: isAdd }, { upsert: true });
-                        await sock.sendMessage(jid, { text: `⚪ Whitelist ${isAdd ? 'ATTIVA' : 'REMOVATA'} per ${clean(target)}` });
+                        await sock.sendMessage(jid, { text: `⚪ Whitelist ${isAdd ? 'ATTIVA' : 'DISATTIVATA'} per ${clean(target)}` });
                     }
                     break;
                 case 'list':
                     const banned = await UserGroupData.find({ groupId: jid, isBlacklisted: true });
                     const whited = await UserGroupData.find({ groupId: jid, isWhitelisted: true });
-                    let l = `🚫 *BANLIST*:\n${banned.map(u => "- " + u.jid).join('\n') || 'Vuota'}\n\n⚪ *WL*:\n${whited.map(u => "- " + u.jid).join('\n') || 'Vuota'}`;
+                    let l = `🚫 *BANLIST*:\n${banned.map(u => "- " + u.jid).join('\n') || 'Vuota'}\n\n⚪ *Whitelist*:\n${whited.map(u => "- " + u.jid).join('\n') || 'Vuota'}`;
                     await sock.sendMessage(jid, { text: l });
                     break;
                 case 'warn': if(target) await handleViolation(jid, target, "Manuale"); break;
