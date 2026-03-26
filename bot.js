@@ -173,42 +173,87 @@ async function startBot() {
             const arg = argsArr[0];
 
             let target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target && arg) {
-                const rawNum = arg.replace(/[^0-9]/g, '');
-                if (rawNum.length >= 10) target = rawNum + '@s.whatsapp.net';
+            if (!target && args[0]) {
+                const rawNum = args[0].replace(/[^0-9]/g, ''); // Prende solo i numeri
+                // Se il numero è molto lungo (come 118...) lo trattiamo come ID speciale
+                if (rawNum.length > 15) {
+                    target = rawNum + '@s.whatsapp.net';
+                } else if (rawNum.length >= 10) {
+                    target = rawNum + '@s.whatsapp.net';
+                }
             }
 
             switch(command) {
                 case 'help':
                     await sock.sendMessage(jid, { text: `🛡️ *HELP ADMIN*\n\n• !warn @tag\n• !resetwarn @tag\n• !ban @tag\n• !unban @tag/numero\n• !antilink on/off\n• !whitelist add @tag\n• !whitelist remove @tag\n• !list` });
                     break;
+
                 case 'unban':
                     if (target) {
-                        await UserGroupData.deleteOne({ jid: target, groupId: jid });
-                        await sock.sendMessage(jid, { text: `✅ Utente @${target.split('@')[0]} rimosso dalla blacklist.`, mentions: [target] });
+                        // SICUREZZA 1: Eliminiamo fisicamente ogni record che corrisponde
+                        await UserGroupData.deleteMany({ jid: target, groupId: jid });
+                        
+                        // SICUREZZA 2: Per eccesso di zelo, resettiamo lo stato su eventuali altri record residui
+                        await UserGroupData.updateMany(
+                            { jid: target, groupId: jid }, 
+                            { $set: { isBlacklisted: false, warns: 0 } }
+                        );
+
+                        await sock.sendMessage(jid, { 
+                            text: `✅ Utente @${target.split('@')[0]} rimosso dalla blacklist di questo gruppo.\nOra può rientrare senza essere espulso.`, 
+                            mentions: [target] 
+                        });
+                    } else {
+                        await sock.sendMessage(jid, { text: "⚠️ Specifica un numero o tagga qualcuno.\nEsempio: !unban 393331234567" });
                     }
                     break;
+
                 case 'whitelist':
-                    if (target && arg) {
-                        const isAdd = arg.toLowerCase() === 'add';
-                        await UserGroupData.findOneAndUpdate({ jid: target, groupId: jid }, { isWhitelisted: isAdd }, { upsert: true });
+                    if (target && args[0]) {
+                        const isAdd = args[0].toLowerCase() === 'add';
+                        await UserGroupData.findOneAndUpdate(
+                            { jid: target, groupId: jid }, 
+                            { isWhitelisted: isAdd }, 
+                            { upsert: true }
+                        );
                         await sock.sendMessage(jid, { text: `✅ Whitelist ${isAdd ? 'AGGIUNTO' : 'RIMOSSO'}: @${target.split('@')[0]}`, mentions: [target] });
                     }
                     break;
+
                 case 'list':
+                    // Cerchiamo SOLO chi ha il flag isBlacklisted a true
                     const banned = await UserGroupData.find({ groupId: jid, isBlacklisted: true });
                     const whited = await UserGroupData.find({ groupId: jid, isWhitelisted: true });
-                    let msg = `🚫 *BANLIST*:\n${banned.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Vuota'}\n\n⚪ *WHITELIST*:\n${whited.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Vuota'}`;
-                    await sock.sendMessage(jid, { text: msg });
+                    
+                    let msgList = `🚫 *BANLIST (Blacklist)*:\n${banned.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Nessuno'}\n\n`;
+                    msgList += `⚪ *WHITELIST*:\n${whited.map(u => "- " + u.jid.split('@')[0]).join('\n') || 'Nessuno'}`;
+                    
+                    await sock.sendMessage(jid, { text: msgList });
                     break;
+
                 case 'warn': if(target) await handleViolation(jid, target, "Manuale"); break;
-                case 'resetwarn': if(target) { await UserGroupData.findOneAndUpdate({ jid: target, groupId: jid }, { warns: 0 }); await sock.sendMessage(jid, { text: "✅ Warn resettati." }); } break;
-                case 'ban': if(target) { 
-                    try { await sock.groupParticipantsUpdate(jid, [target], "remove"); } catch(e) {}
-                    await UserGroupData.findOneAndUpdate({ jid: target, groupId: jid }, { isBlacklisted: true }, { upsert: true }); 
-                } break;
+                
+                case 'resetwarn': 
+                    if(target) { 
+                        await UserGroupData.updateMany({ jid: target, groupId: jid }, { $set: { warns: 0 } }); 
+                        await sock.sendMessage(jid, { text: "✅ Warn resettati." }); 
+                    } 
+                    break;
+
+                case 'ban': 
+                    if(target) { 
+                        try { await sock.groupParticipantsUpdate(jid, [target], "remove"); } catch(e) {}
+                        await UserGroupData.findOneAndUpdate(
+                            { jid: target, groupId: jid }, 
+                            { isBlacklisted: true, warns: 3 }, 
+                            { upsert: true }
+                        ); 
+                        await sock.sendMessage(jid, { text: "🚫 Utente rimosso e blacklistato." });
+                    } 
+                    break;
+
                 case 'antilink': 
-                    antiLinkActive = arg?.toLowerCase() === 'on'; 
+                    antiLinkActive = args[0]?.toLowerCase() === 'on'; 
                     await sock.sendMessage(jid, { text: `🔗 Anti-Link: ${antiLinkActive ? 'ATTIVO' : 'DISATTIVATO'}` }); 
                     break;
             }
