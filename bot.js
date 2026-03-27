@@ -102,6 +102,31 @@ async function startBot() {
         const metadata = await getMetadata(id);
         const admins = metadata.participants.filter(p => p.admin).map(p => p.id);
 
+            // --- AGGIUNGI DA QUI ---
+    // 🛡️ AUTO-DEMOTE & ANTI-BOT-ADMIN
+    if (action === "add" || action === "promote") {
+        for (let p of participants) {
+            // Se l'utente NON sei tu (proprietario) e NON è il bot stesso
+            if (p !== ME_NUMBER + "@s.whatsapp.net" && p !== botJid) {
+                const user = await UserGroupData.findOne({ jid: p, groupId: id });
+                
+                // Se non è in whitelist, declassalo e rimuovilo istantaneamente
+                if (!user?.isWhitelisted) {
+                    try {
+                        await sock.groupParticipantsUpdate(id, [p], "demote"); // Toglie admin
+                        await sock.groupParticipantsUpdate(id, [p], "remove"); // Lo espelle
+                        await sock.sendMessage(id, { 
+                            text: `🛡️ *SISTEMA ANTI-NUKE:* Rilevato tentativo di ingresso/promozione admin non autorizzato (@${p.split('@')[0]}). Utente rimosso.`,
+                            mentions: [p] 
+                        });
+                    } catch (e) {
+                        console.error("Errore nel declassare il bot nemico:", e);
+                    }
+                }
+            }
+        }
+    }
+
         if (action === "promote") {
             for (let p of participants) {
                 await UserGroupData.findOneAndUpdate({ jid: clean(p), groupId: id }, { adminSince: new Date() }, { upsert: true });
