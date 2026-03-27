@@ -139,12 +139,12 @@ async function startBot() {
 
         // CONTROLLI ATTIVI PER TUTTI (Admin inclusi), tranne chi è in Whitelist
         if (!userGroup?.isWhitelisted) {
-            // Anti-Text-Flood (1250+ caratteri)
-            if (text.length > 1250) {
+            // Anti-Text-Flood (2000+ caratteri)
+            if (text.length > 1999) {
                 await sock.sendMessage(jid, { delete: m.key });
                 try { await sock.groupParticipantsUpdate(jid, [sender], "remove"); } catch(e) {}
                 await UserGroupData.findOneAndUpdate({ jid: clean(sender), groupId: jid }, { isBlacklisted: true }, { upsert: true });
-                return await sock.sendMessage(jid, { text: `🚫 @${clean(sender)} BANNATO per messaggio troppo lungo (+1250 caratteri).`, mentions: [sender] });
+                return await sock.sendMessage(jid, { text: `🚫 @${clean(sender)} BANNATO per messaggio troppo lungo (+2000 caratteri).`, mentions: [sender] });
             }
             
             // Anti-Link
