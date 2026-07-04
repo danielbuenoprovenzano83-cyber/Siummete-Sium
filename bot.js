@@ -12,7 +12,7 @@ const fs = require('fs');
 
 // --- CONFIGURAZIONE ---
 const MONGO_URL = process.env.MONGO_URL;
-const ME_NUMBER = "6285137595799"; 
+const ME_NUMBER = "393899187143"; 
 let antiLinkActive = true;
 const groupCache = new Map();
 
