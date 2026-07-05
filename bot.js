@@ -53,15 +53,43 @@ async function syncSession(action) {
 }
 
 async function startBot() {
-    await mongoose.connect(MONGO_URL);
+    try {
+        if (!MONGO_URL) {
+            console.error("❌ ERRORE: La variabile d'ambiente MONGO_URL non è impostata su Render!");
+            return;
+        }
+
+        console.log("🔄 Tentativo di connessione a MongoDB...");
+        await mongoose.connect(MONGO_URL, { 
+            serverSelectionTimeoutMS: 5000 // Evita che il bot rimanga bloccato se l'IP non è abilitato
+        });
+        console.log("💾 Connesso a MongoDB con successo!");
+        
+    } catch (dbError) {
+        console.error("❌ ERRORE CRITICO DATABASE:", dbError.message);
+        console.error("👉 VERIFICA: Su MongoDB Atlas, vai in 'Network Access' e assicurati di aver aggiunto l'IP 0.0.0.0/0 per permettere a Render di connettersi.");
+        setTimeout(() => startBot(), 15000); // Riprova tra 15 secondi invece di crashare a ripetizione
+        return;
+    }
+
+    // Pulisce la cartella auth_info locale prima di caricare, per evitare file corrotti mischiati
+    if (fs.existsSync('./auth_info')) {
+        try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch(e){}
+    }
+
     await syncSession('load');
+    
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
-        version, auth: state, logger: pino({ level: 'silent' }),
+        version, 
+        auth: state, 
+        logger: pino({ level: 'silent' }),
         browser: ["Mac OS", "Chrome", "122.0.6261.112"]
     });
+
+    // ... il resto del codice con connection.update rimane invariato
 
     // Risparmia query su DB ritardando il salvataggio continuo delle pre-key di Baileys
     let saveTimeout;
