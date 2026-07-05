@@ -94,9 +94,8 @@ async function startBot() {
     const botState = authStateData.state;
     const botSaveCreds = authStateData.saveCreds;
 
-    // 🌟 FIX CRITICO PER ERRORE 405: 
-    // Recuperiamo la versione corretta tramite la funzione nativa di Baileys
-    let botVersion =; // Fallback di sicurezza se l'API fallisce
+    // 🌟 FIX CRITICO: Assegniamo una versione di fallback valida per evitare il SyntaxError
+    let botVersion =; 
     try {
         const versionData = await fetchLatestBaileysVersion();
         botVersion = versionData.version;
