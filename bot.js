@@ -94,12 +94,14 @@ async function startBot() {
     const botState = authStateData.state;
     const botSaveCreds = authStateData.saveCreds;
 
-    // 🌟 FIX CRITICO: Assegniamo una versione di fallback valida per evitare il SyntaxError
-    let botVersion =; 
+    // 🌟 FIX DEFINITIVO: Usiamo una stringa per evitare i bug di formattazione delle parentesi quadre
+    const fallbackString = "2.3000.1017772710";
+    let botVersion = fallbackString.split('.').map(Number);
+    
     try {
         const versionData = await fetchLatestBaileysVersion();
         botVersion = versionData.version;
-        console.log(`ℹ️ Versione protocollo WhatsApp agganciata: ${botVersion.join('.')}`);
+        console.log("ℹ️ Versione protocollo WhatsApp agganciata con successo!");
     } catch (vErr) {
         console.log("⚠️ Impossibile recuperare versione aggiornata, uso del fallback stabile.");
     }
