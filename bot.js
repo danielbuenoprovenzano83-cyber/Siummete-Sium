@@ -63,23 +63,68 @@ async function startBot() {
         browser: ["Mac OS", "Chrome", "122.0.6261.112"]
     });
 
-    sock.ev.on('creds.update', async () => { await saveCreds(); await syncSession('save'); });
+    // Risparmia query su DB ritardando il salvataggio continuo delle pre-key di Baileys
+    let saveTimeout;
+    sock.ev.on('creds.update', async () => { 
+        await saveCreds(); 
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(async () => {
+            await syncSession('save'); 
+        }, 5000);
+    });
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
+    // 🌟 INTERCETTAZIONE E GENERAZIONE SICURA DEL PAIRING CODE
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        // Se Baileys genera il QR (segno che serve il login) e non siamo registrati, forziamo il pairing code
+        if (qr && !sock.authState.creds.registered) {
+            console.log("🔄 Generazione del codice di pairing richiesta in console...");
             try {
-                let code = await sock.requestPairingCode(ME_NUMBER);
-                console.log(`\n🔑 CODICE PAIRING: ${code?.match(/.{1,4}/g)?.join("-")}\n`);
-            } catch (e) { console.error("Errore pairing"); }
-        }, 8000);
-    }
+                const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, ''); // Pulisce il numero da spazi o caratteri speciali
+                let code = await sock.requestPairingCode(phoneNumber);
+                console.log(`\n🔑 [CODICE PAIRING]: ${code?.match(/.{1,4}/g)?.join("-")}\n`);
+            } catch (e) { 
+                console.error("❌ Errore durante la richiesta del pairing code:", e); 
+            }
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom) 
+                ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut 
+                : true;
+            console.log(`🔌 Connessione chiusa. Riconnessione automatica: ${shouldReconnect}`);
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log('🚀 Security Bot V5.2 online e connesso con successo!');
+        }
+    });
+
+    // Fallback di sicurezza se l'evento QR non viene registrato immediatamente
+    setTimeout(async () => {
+        if (!sock.authState.creds.registered && !sock.authState.creds.me) {
+            console.log("🔄 Fallback: Esecuzione richiesta manuale del pairing code...");
+            try {
+                const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, '');
+                let code = await sock.requestPairingCode(phoneNumber);
+                console.log(`\n🔑 [CODICE PAIRING FALLBACK]: ${code?.match(/.{1,4}/g)?.join("-")}\n`);
+            } catch (e) { 
+                console.error("❌ Errore nel fallback del pairing:", e); 
+            }
+        }
+    }, 10000);
 
     const getMetadata = async (jid) => {
         if (groupCache.has(jid)) return groupCache.get(jid);
-        const metadata = await sock.groupMetadata(jid);
-        groupCache.set(jid, metadata);
-        setTimeout(() => groupCache.delete(jid), 15000);
-        return metadata;
+        try {
+            const metadata = await sock.groupMetadata(jid);
+            groupCache.set(jid, metadata);
+            setTimeout(() => groupCache.delete(jid), 15000);
+            return metadata;
+        } catch (e) {
+            console.error(`❌ Errore metadati per il gruppo ${jid}:`, e.message);
+            return null;
+        }
     };
 
     const handleViolation = async (jid, participant, reason) => {
