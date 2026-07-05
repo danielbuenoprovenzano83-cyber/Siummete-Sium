@@ -53,9 +53,6 @@ async function syncSession(action) {
     }
 }
 
-// Aggiungi questa variabile globale in alto, sotto le altre configurazioni
-let isResetting = false;
-
 async function startBot() {
     // Impedisce sovrapposizioni di istanze se gli eventi si accavallano su Render
     if (isResetting) return; 
