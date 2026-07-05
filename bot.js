@@ -104,19 +104,19 @@ async function startBot() {
     // 2. Carichiamo la sessione pulita da MongoDB
     await syncSession('load');
 
-    // 🌟 FIX CRITICO: Cambiato da 'const { state, saveCreds }' a una riassegnazione semplice.
-    // Questo evita il SyntaxError di doppia dichiarazione che fa crashare il bot.
+    // 🌟 RISOLUZIONE DEFINITIVA: Usiamo nomi unici (botState e botSaveCreds) 
+    // per aggirare qualsiasi duplicazione di 'state' nel file.
     const authStateData = await useMultiFileAuthState('auth_info');
-    const state = authStateData.state;
-    const saveCreds = authStateData.saveCreds;
+    const botState = authStateData.state;
+    const botSaveCreds = authStateData.saveCreds;
 
     const versionData = await fetchLatestBaileysVersion();
-    const version = versionData.version;
+    const botVersion = versionData.version;
 
-    // 3. Inizializzazione del Socket con Browser Mac nativo per evitare codici pairing rifiutati
+    // 3. Inizializzazione del Socket modificata con le nuove variabili sicure
     const sock = makeWASocket({
-        version,
-        auth: state,
+        version: botVersion,
+        auth: botState, // 👈 Usa la variabile rinominata
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         browser: Browsers.macOS("Chrome") 
@@ -124,7 +124,7 @@ async function startBot() {
 
     let saveTimeout;
     sock.ev.on('creds.update', async () => { 
-        await saveCreds(); 
+        await botSaveCreds(); // 👈 Modifica questa riga inserendo il nuovo nome sicuro
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(async () => {
             await syncSession('save'); 
