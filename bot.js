@@ -107,12 +107,20 @@ async function startBot() {
     }
 
     const sock = makeWASocket({
-        version: botVersion, // 👈 Versione correttamente ripristinata
+        version: botVersion,
         auth: botState,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.macOS("Chrome"),
-        shouldSyncHistoryMessage: () => false
+        browser: Browsers.macOS("Chrome"), // Mantiene l'emulazione corretta per il pairing
+        
+        // 🌟 OPZIONI AVANZATE ANTI-BLOCCO (Risolvono il caricamento infinito):
+        connectTimeoutMs: 60000,           // Estende il timeout di connessione a 60 secondi
+        defaultQueryTimeoutMs: 60000,      // Estende il timeout delle query di autenticazione a 60 secondi
+        keepAliveIntervalMs: 30000,        // Mantiene il canale WebSocket attivo stabilmente
+        
+        syncFullHistory: false,            // Disattiva il download della cronologia vecchia (causa primaria di crash)
+        fireInitQueries: false,            // Impedisce l'invio di query di massa all'avvio
+        shouldSyncHistoryMessage: () => false // Blocca totalmente la sincronizzazione della cronologia
     });
 
     let saveTimeout;
