@@ -96,32 +96,35 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
-    // 1. Pulizia preventiva della cartella per evitare chiavi orfane
+    // 1. Forziamo la cancellazione completa dei residui locali
     if (fs.existsSync('./auth_info')) {
         try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch(e){}
     }
     
-    // 2. Carichiamo la sessione pulita da MongoDB
     await syncSession('load');
 
-    // 🌟 RISOLUZIONE DEFINITIVA: Usiamo nomi unici (botState e botSaveCreds) 
-    // per aggirare qualsiasi duplicazione di 'state' nel file.
     const authStateData = await useMultiFileAuthState('auth_info');
     const botState = authStateData.state;
     const botSaveCreds = authStateData.saveCreds;
 
-    const versionData = await fetchLatestBaileysVersion();
-    const botVersion = versionData.version;
+    // 🌟 STRATEGIA DI COERCISIONE PROTOCOLLO: 
+    // Definiamo una versione fissa (es. 2.3000.x o superiore) anziché fetchLatestBaileysVersion.
+    // Questo forza Baileys a usare un algoritmo di accoppiamento stabile e accettato dai server di Meta.
+    const forcedVersion = [2, 3000, 1015591307]; 
 
-    // 3. Inizializzazione del Socket modificata con le nuove variabili sicure
     const sock = makeWASocket({
-        version: botVersion,
-        auth: botState, // 👈 Usa la variabile rinominata
+        version: forcedVersion, // 👈 Applica la versione forzata
+        auth: botState,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.macOS("Chrome") 
+        
+        // Configurazione Browser nativa per forzare l'handshake di WhatsApp Web
+        browser: Browsers.macOS("Chrome"),
+        
+        // Disattiva la sincronizzazione della cronologia per alleggerire la memoria su Render
+        shouldSyncHistoryMessage: () => false 
     });
-
+    
     let saveTimeout;
     sock.ev.on('creds.update', async () => { 
         await botSaveCreds(); // 👈 Modifica questa riga inserendo il nuovo nome sicuro
