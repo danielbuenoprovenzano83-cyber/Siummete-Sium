@@ -15,6 +15,7 @@ const MONGO_URL = process.env.MONGO_URL;
 const ME_NUMBER = "393899187143"; 
 let antiLinkActive = true;
 const groupCache = new Map();
+let isResetting = false;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -52,33 +53,56 @@ async function syncSession(action) {
     }
 }
 
+// Aggiungi questa variabile globale in alto, sotto le altre configurazioni
+let isResetting = false;
+
 async function startBot() {
+    // Impedisce sovrapposizioni di istanze se gli eventi si accavallano su Render
+    if (isResetting) return; 
+
     try {
         if (!MONGO_URL) {
-            console.error("❌ ERRORE: La variabile d'ambiente MONGO_URL non è impostata!");
+            console.error("❌ ERRORE: Variabile MONGO_URL mancante!");
             return;
         }
 
         console.log("🔄 Tentativo di connessione a MongoDB...");
-        await mongoose.connect(MONGO_URL, { serverSelectionTimeoutMS: 8000 });
+        await mongoose.connect(MONGO_URL, { serverSelectionTimeoutMS: 5000 });
         console.log("💾 Connesso a MongoDB con successo!");
         
     } catch (dbError) {
-        console.error("❌ ERRORE CRITICO DATABASE:", dbError.message);
+        console.error("❌ ERRORE DATABASE:", dbError.message);
         setTimeout(() => startBot(), 15000); 
         return;
     }
 
+    // 🧹 FIX DEFCON-1: Se rileva un loop o vuoi forzare un reset totale,
+    // eseguiamo la cancellazione della sessione corrotta PRIMA di avviare Baileys.
+    try {
+        const checkSession = await Session.findOne({ id: 'session' });
+        // Se la sessione locale è vuota ma su DB c'è qualcosa, o se forziamo il reset dopo un 401
+        if (checkSession && (!fs.existsSync('./auth_info') || fs.readdirSync('./auth_info').length === 0)) {
+            console.log("🧹 [PULIZIA AUTOMATICA] Rilevata sessione obsoleta su DB. Svuotamento in corso...");
+            await Session.deleteOne({ id: 'session' });
+            if (fs.existsSync('./auth_info')) {
+                fs.rmSync('./auth_info', { recursive: true, force: true });
+            }
+            console.log("✨ Database e cartella locale resettati con successo!");
+        }
+    } catch (e) {
+        console.error("Errore durante il controllo preventivo del DB:", e.message);
+    }
+
+    // Carica la sessione pulita
     await syncSession('load');
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
-    // Configurazione socket stabile per il Pairing Code
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"] // Standard ottimizzato per ambienti Linux/Render
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
     let saveTimeout;
@@ -90,18 +114,16 @@ async function startBot() {
         }, 4000);
     });
 
-    // Controllo di stato per evitare richieste multiple simmetriche
     let pairingRequested = false;
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // 🔑 GENERAZIONE DEL CODICE DI PAIRING AL MOMENTO GIUSTO
+        // Generazione del Pairing Code stabile
         if (qr && !sock.authState.creds.registered && !pairingRequested) {
             pairingRequested = true;
-            console.log("🔄 [SISTEMA] Richiesta del codice di pairing a WhatsApp in corso...");
+            console.log("🔄 [SISTEMA] Richiesta del codice di pairing a WhatsApp...");
             
-            // Ritardo di sicurezza di 3 secondi per dare tempo al WebSocket di stabilizzarsi
             setTimeout(async () => {
                 try {
                     const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, '');
@@ -110,49 +132,46 @@ async function startBot() {
                     console.log(`🔑 IL TUO CODICE PAIRING: ${code?.match(/.{1,4}/g)?.join("-")}`);
                     console.log(`====================================\n`);
                 } catch (e) { 
-                    console.error("❌ Errore durante la generazione del pairing code:", e.message); 
-                    pairingRequested = false; // Resetta in caso di fallimento temporaneo
+                    console.error("❌ Errore pairing code:", e.message); 
+                    pairingRequested = false; 
                 }
             }, 3000);
         }
 
-        // GESTIONE DISCONNESSIONI CON EVITAMENTO LOOP RAPIDI
         if (connection === 'close') {
             const statusCode = (lastDisconnect?.error instanceof Boom) 
                 ? lastDisconnect.error.output?.statusCode 
                 : null;
 
-            // ⚠️ FIX CRITICO PER ERRORE 401 (SESSIONE SCADUTA / CORROTTA)
+            console.log(`🔌 Connessione chiusa (Status: ${statusCode})`);
+
+            // Se l'errore è un 401, attiviamo il flag di reset ed eliminiamo tutto prima di ripartire
             if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
-                console.log("⚠️ [SESSIONE CORROTTA] Rilevato errore 401. Tabula rasa della sessione...");
+                console.log("⚠️ Sessione rifiutata (401). Svuoto la cache locale...");
+                isResetting = true;
                 
                 try {
-                    // 1. Elimina i file locali corrotti per evitare che vengano ricaricati
                     if (fs.existsSync('./auth_info')) {
                         fs.rmSync('./auth_info', { recursive: true, force: true });
                     }
-                    
-                    // 2. Svuota il database MongoDB in modo asincrono per consentire una nuova registrazione
                     await Session.deleteOne({ id: 'session' });
-                    console.log("🧹 Cache locale e MongoDB ripulite con successo!");
-                } catch (cleanupError) {
-                    console.error("❌ Errore durante la pulizia della sessione:", cleanupError.message);
+                    console.log("🧹 Tabula rasa completata.");
+                } catch(err) {
+                    console.error("Errore pulizia:", err.message);
                 }
 
-                console.log("⏳ Riavvio del bot in corso per generare una nuova sessione pulita...");
+                isResetting = false;
+                console.log("⏳ Riavvio pulito tra 5 secondi...");
                 setTimeout(() => startBot(), 5000);
                 return;
             }
 
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`🔌 Connessione chiusa (Status: ${statusCode}). Riconnessione: ${shouldReconnect}`);
-            
-            if (shouldReconnect) {
-                console.log("⏳ Attesa di 10 secondi prima del prossimo tentativo...");
-                setTimeout(() => startBot(), 10000);
-            }
+            // Evita reconnect fulminei che causano ban temporanei su Render
+            console.log("⏳ Attesa di 10 secondi prima di riconnettere...");
+            setTimeout(() => startBot(), 10000);
+
         } else if (connection === 'open') {
-            console.log('🚀 [LIVE] Security Bot V5.2 Connesso ed Attivo su WhatsApp!');
+            console.log('🚀 [LIVE] Security Bot V5.2 Connesso con Successo!');
             pairingRequested = false;
         }
     });
