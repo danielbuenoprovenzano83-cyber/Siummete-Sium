@@ -55,92 +55,90 @@ async function syncSession(action) {
 async function startBot() {
     try {
         if (!MONGO_URL) {
-            console.error("❌ ERRORE: La variabile d'ambiente MONGO_URL non è impostata su Render!");
+            console.error("❌ ERRORE: La variabile d'ambiente MONGO_URL non è impostata!");
             return;
         }
 
         console.log("🔄 Tentativo di connessione a MongoDB...");
-        await mongoose.connect(MONGO_URL, { 
-            serverSelectionTimeoutMS: 5000 // Evita che il bot rimanga bloccato se l'IP non è abilitato
-        });
+        await mongoose.connect(MONGO_URL, { serverSelectionTimeoutMS: 8000 });
         console.log("💾 Connesso a MongoDB con successo!");
         
     } catch (dbError) {
         console.error("❌ ERRORE CRITICO DATABASE:", dbError.message);
-        console.error("👉 VERIFICA: Su MongoDB Atlas, vai in 'Network Access' e assicurati di aver aggiunto l'IP 0.0.0.0/0 per permettere a Render di connettersi.");
-        setTimeout(() => startBot(), 15000); // Riprova tra 15 secondi invece di crashare a ripetizione
+        setTimeout(() => startBot(), 15000); 
         return;
     }
 
-    // Pulisce la cartella auth_info locale prima di caricare, per evitare file corrotti mischiati
-    if (fs.existsSync('./auth_info')) {
-        try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch(e){}
-    }
-
     await syncSession('load');
-    
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
+    // Configurazione socket stabile per il Pairing Code
     const sock = makeWASocket({
-        version, 
-        auth: state, 
+        version,
+        auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Mac OS", "Chrome", "122.0.6261.112"]
+        browser: ["Ubuntu", "Chrome", "20.0.04"] // Standard ottimizzato per ambienti Linux/Render
     });
 
-    // ... il resto del codice con connection.update rimane invariato
-
-    // Risparmia query su DB ritardando il salvataggio continuo delle pre-key di Baileys
     let saveTimeout;
     sock.ev.on('creds.update', async () => { 
         await saveCreds(); 
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(async () => {
             await syncSession('save'); 
-        }, 5000);
+        }, 4000);
     });
 
-    // 🌟 INTERCETTAZIONE E GENERAZIONE SICURA DEL PAIRING CODE
+    // Controllo di stato per evitare richieste multiple simmetriche
+    let pairingRequested = false;
+
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Se Baileys genera il QR (segno che serve il login) e non siamo registrati, forziamo il pairing code
-        if (qr && !sock.authState.creds.registered) {
-            console.log("🔄 Generazione del codice di pairing richiesta in console...");
-            try {
-                const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, ''); // Pulisce il numero da spazi o caratteri speciali
-                let code = await sock.requestPairingCode(phoneNumber);
-                console.log(`\n🔑 [CODICE PAIRING]: ${code?.match(/.{1,4}/g)?.join("-")}\n`);
-            } catch (e) { 
-                console.error("❌ Errore durante la richiesta del pairing code:", e); 
-            }
+        // 🔑 GENERAZIONE DEL CODICE DI PAIRING AL MOMENTO GIUSTO
+        if (qr && !sock.authState.creds.registered && !pairingRequested) {
+            pairingRequested = true;
+            console.log("🔄 [SISTEMA] Richiesta del codice di pairing a WhatsApp in corso...");
+            
+            // Ritardo di sicurezza di 3 secondi per dare tempo al WebSocket di stabilizzarsi
+            setTimeout(async () => {
+                try {
+                    const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, '');
+                    let code = await sock.requestPairingCode(phoneNumber);
+                    console.log(`\n====================================`);
+                    console.log(`🔑 IL TUO CODICE PAIRING: ${code?.match(/.{1,4}/g)?.join("-")}`);
+                    console.log(`====================================\n`);
+                } catch (e) { 
+                    console.error("❌ Errore durante la generazione del pairing code:", e.message); 
+                    pairingRequested = false; // Resetta in caso di fallimento temporaneo
+                }
+            }, 3000);
         }
 
+        // GESTIONE DISCONNESSIONI CON EVITAMENTO LOOP RAPIDI
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom) 
-                ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut 
-                : true;
-            console.log(`🔌 Connessione chiusa. Riconnessione automatica: ${shouldReconnect}`);
-            if (shouldReconnect) startBot();
+            const statusCode = (lastDisconnect?.error instanceof Boom) 
+                ? lastDisconnect.error.output?.statusCode 
+                : null;
+
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`🔌 Connessione chiusa (Status: ${statusCode}). Riconnessione: ${shouldReconnect}`);
+            
+            if (shouldReconnect) {
+                // Imposta un delay di 10 secondi prima di riavviare per evitare il ban IP da WhatsApp
+                console.log("⏳ Attesa di 10 secondi prima del prossimo tentativo...");
+                setTimeout(() => startBot(), 10000);
+            } else {
+                console.log("❌ Bot disconnesso definitivamente (Logged Out).");
+            }
         } else if (connection === 'open') {
-            console.log('🚀 Security Bot V5.2 online e connesso con successo!');
+            console.log('🚀 [LIVE] Security Bot V5.2 Connesso ed Attivo su WhatsApp!');
+            pairingRequested = false;
         }
     });
 
-    // Fallback di sicurezza se l'evento QR non viene registrato immediatamente
-    setTimeout(async () => {
-        if (!sock.authState.creds.registered && !sock.authState.creds.me) {
-            console.log("🔄 Fallback: Esecuzione richiesta manuale del pairing code...");
-            try {
-                const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, '');
-                let code = await sock.requestPairingCode(phoneNumber);
-                console.log(`\n🔑 [CODICE PAIRING FALLBACK]: ${code?.match(/.{1,4}/g)?.join("-")}\n`);
-            } catch (e) { 
-                console.error("❌ Errore nel fallback del pairing:", e); 
-            }
-        }
-    }, 10000);
+    // Rimuoviamo la vecchia funzione statica setTimeout esterna che generava conflitti
 
     const getMetadata = async (jid) => {
         if (groupCache.has(jid)) return groupCache.get(jid);
@@ -150,7 +148,6 @@ async function startBot() {
             setTimeout(() => groupCache.delete(jid), 15000);
             return metadata;
         } catch (e) {
-            console.error(`❌ Errore metadati per il gruppo ${jid}:`, e.message);
             return null;
         }
     };
