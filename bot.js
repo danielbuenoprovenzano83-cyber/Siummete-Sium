@@ -55,8 +55,7 @@ async function syncSession(action) {
 }
 
 async function startBot() {
-    // Impedisce sovrapposizioni di istanze se gli eventi si accavallano su Render
-    if (isResetting) return; 
+    if (global.isResettingBot) return; 
 
     try {
         if (!MONGO_URL) {
@@ -74,11 +73,9 @@ async function startBot() {
         return;
     }
 
-    // 🧹 FIX DEFCON-1: Se rileva un loop o vuoi forzare un reset totale,
-    // eseguiamo la cancellazione della sessione corrotta PRIMA di avviare Baileys.
+    // Pulizia automatica della sessione obsoleta su DB PRIMA di avviare Baileys.
     try {
         const checkSession = await Session.findOne({ id: 'session' });
-        // Se la sessione locale è vuota ma su DB c'è qualcosa, o se forziamo il reset dopo un 401
         if (checkSession && (!fs.existsSync('./auth_info') || fs.readdirSync('./auth_info').length === 0)) {
             console.log("🧹 [PULIZIA AUTOMATICA] Rilevata sessione obsoleta su DB. Svuotamento in corso...");
             await Session.deleteOne({ id: 'session' });
@@ -91,43 +88,35 @@ async function startBot() {
         console.error("Errore durante il controllo preventivo del DB:", e.message);
     }
 
-    // Carica la sessione pulita
-    await syncSession('load');
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    const { version } = await fetchLatestBaileysVersion();
-
-    // 1. Forziamo la cancellazione completa dei residui locali
-    if (fs.existsSync('./auth_info')) {
-        try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch(e){}
-    }
-    
     await syncSession('load');
 
     const authStateData = await useMultiFileAuthState('auth_info');
     const botState = authStateData.state;
     const botSaveCreds = authStateData.saveCreds;
 
-    // 🌟 STRATEGIA DI COERCISIONE PROTOCOLLO: 
-    // Definiamo una versione fissa (es. 2.3000.x o superiore) anziché fetchLatestBaileysVersion.
-    // Questo forza Baileys a usare un algoritmo di accoppiamento stabile e accettato dai server di Meta.
-    const forcedVersion = [2, 3000, 1015591307]; 
+    // 🌟 FIX CRITICO PER ERRORE 405: 
+    // Recuperiamo la versione corretta tramite la funzione nativa di Baileys
+    let botVersion =; // Fallback di sicurezza se l'API fallisce
+    try {
+        const versionData = await fetchLatestBaileysVersion();
+        botVersion = versionData.version;
+        console.log(`ℹ️ Versione protocollo WhatsApp agganciata: ${botVersion.join('.')}`);
+    } catch (vErr) {
+        console.log("⚠️ Impossibile recuperare versione aggiornata, uso del fallback stabile.");
+    }
 
     const sock = makeWASocket({
-        version: forcedVersion, // 👈 Applica la versione forzata
+        version: botVersion, // 👈 Versione correttamente ripristinata
         auth: botState,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        
-        // Configurazione Browser nativa per forzare l'handshake di WhatsApp Web
         browser: Browsers.macOS("Chrome"),
-        
-        // Disattiva la sincronizzazione della cronologia per alleggerire la memoria su Render
-        shouldSyncHistoryMessage: () => false 
+        shouldSyncHistoryMessage: () => false
     });
-    
+
     let saveTimeout;
     sock.ev.on('creds.update', async () => { 
-        await botSaveCreds(); // 👈 Modifica questa riga inserendo il nuovo nome sicuro
+        await botSaveCreds(); 
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(async () => {
             await syncSession('save'); 
@@ -139,10 +128,9 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Generazione del Pairing Code stabile
         if (qr && !sock.authState.creds.registered && !pairingRequested) {
             pairingRequested = true;
-            console.log("🔄 [SISTEMA] Richiesta del codice di pairing a WhatsApp...");
+            console.log("⏳ [SISTEMA] Connessione stabilizzata. Generazione del codice di pairing...");
             
             setTimeout(async () => {
                 try {
@@ -155,7 +143,7 @@ async function startBot() {
                     console.error("❌ Errore pairing code:", e.message); 
                     pairingRequested = false; 
                 }
-            }, 3000);
+            }, 5000);
         }
 
         if (connection === 'close') {
@@ -165,10 +153,9 @@ async function startBot() {
 
             console.log(`🔌 Connessione chiusa (Status: ${statusCode})`);
 
-            // Se l'errore è un 401, attiviamo il flag di reset ed eliminiamo tutto prima di ripartire
             if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
                 console.log("⚠️ Sessione rifiutata (401). Svuoto la cache locale...");
-                isResetting = true;
+                global.isResettingBot = true;
                 
                 try {
                     if (fs.existsSync('./auth_info')) {
@@ -180,13 +167,12 @@ async function startBot() {
                     console.error("Errore pulizia:", err.message);
                 }
 
-                isResetting = false;
+                global.isResettingBot = false;
                 console.log("⏳ Riavvio pulito tra 5 secondi...");
                 setTimeout(() => startBot(), 5000);
                 return;
             }
 
-            // Evita reconnect fulminei che causano ban temporanei su Render
             console.log("⏳ Attesa di 10 secondi prima di riconnettere...");
             setTimeout(() => startBot(), 10000);
 
