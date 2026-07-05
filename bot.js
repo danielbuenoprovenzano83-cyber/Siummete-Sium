@@ -2,7 +2,8 @@ const {
     default: makeWASocket, 
     DisconnectReason, 
     useMultiFileAuthState,
-    fetchLatestBaileysVersion 
+    fetchLatestBaileysVersion,
+    Browsers // 👈 AGGIUNGI QUESTO IMPORT CRITICO
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const express = require('express');
@@ -95,11 +96,24 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
+    // Svuotiamo preventivamente la cartella locale per evitare chiavi orfane che invalidano il codice
+    if (fs.existsSync('./auth_info')) {
+        try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch(e){}
+    }
+    
+    // Ricarichiamo l'auth state pulito
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    const { version } = await fetchLatestBaileysVersion();
+
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        printQRInTerminal: false, // Disattiva il QR per non creare conflitti con il pairing
+        
+        // 🌟 FIX CRITICO: Usa il costruttore nativo macOS/Chrome.
+        // WhatsApp rifiuta i codici se questa stringa non è formattata perfettamente secondo lo standard della libreria.
+        browser: Browsers.macOS("Chrome") 
     });
 
     let saveTimeout;
