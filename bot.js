@@ -96,23 +96,29 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
 
-    // Svuotiamo preventivamente la cartella locale per evitare chiavi orfane che invalidano il codice
+    // 1. Pulizia preventiva della cartella per evitare chiavi orfane
     if (fs.existsSync('./auth_info')) {
         try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch(e){}
     }
     
-    // Ricarichiamo l'auth state pulito
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-    const { version } = await fetchLatestBaileysVersion();
+    // 2. Carichiamo la sessione pulita da MongoDB
+    await syncSession('load');
 
+    // 🌟 FIX CRITICO: Cambiato da 'const { state, saveCreds }' a una riassegnazione semplice.
+    // Questo evita il SyntaxError di doppia dichiarazione che fa crashare il bot.
+    const authStateData = await useMultiFileAuthState('auth_info');
+    const state = authStateData.state;
+    const saveCreds = authStateData.saveCreds;
+
+    const versionData = await fetchLatestBaileysVersion();
+    const version = versionData.version;
+
+    // 3. Inizializzazione del Socket con Browser Mac nativo per evitare codici pairing rifiutati
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, // Disattiva il QR per non creare conflitti con il pairing
-        
-        // 🌟 FIX CRITICO: Usa il costruttore nativo macOS/Chrome.
-        // WhatsApp rifiuta i codici se questa stringa non è formattata perfettamente secondo lo standard della libreria.
+        printQRInTerminal: false,
         browser: Browsers.macOS("Chrome") 
     });
 
