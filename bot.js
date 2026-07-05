@@ -122,15 +122,34 @@ async function startBot() {
                 ? lastDisconnect.error.output?.statusCode 
                 : null;
 
+            // ⚠️ FIX CRITICO PER ERRORE 401 (SESSIONE SCADUTA / CORROTTA)
+            if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
+                console.log("⚠️ [SESSIONE CORROTTA] Rilevato errore 401. Tabula rasa della sessione...");
+                
+                try {
+                    // 1. Elimina i file locali corrotti per evitare che vengano ricaricati
+                    if (fs.existsSync('./auth_info')) {
+                        fs.rmSync('./auth_info', { recursive: true, force: true });
+                    }
+                    
+                    // 2. Svuota il database MongoDB in modo asincrono per consentire una nuova registrazione
+                    await Session.deleteOne({ id: 'session' });
+                    console.log("🧹 Cache locale e MongoDB ripulite con successo!");
+                } catch (cleanupError) {
+                    console.error("❌ Errore durante la pulizia della sessione:", cleanupError.message);
+                }
+
+                console.log("⏳ Riavvio del bot in corso per generare una nuova sessione pulita...");
+                setTimeout(() => startBot(), 5000);
+                return;
+            }
+
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`🔌 Connessione chiusa (Status: ${statusCode}). Riconnessione: ${shouldReconnect}`);
             
             if (shouldReconnect) {
-                // Imposta un delay di 10 secondi prima di riavviare per evitare il ban IP da WhatsApp
                 console.log("⏳ Attesa di 10 secondi prima del prossimo tentativo...");
                 setTimeout(() => startBot(), 10000);
-            } else {
-                console.log("❌ Bot disconnesso definitivamente (Logged Out).");
             }
         } else if (connection === 'open') {
             console.log('🚀 [LIVE] Security Bot V5.2 Connesso ed Attivo su WhatsApp!');
