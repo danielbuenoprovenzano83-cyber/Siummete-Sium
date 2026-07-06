@@ -143,21 +143,18 @@ async function startBot() {
         auth: botState,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
+        browser: Browsers.macOS("Safari"),
         
-        // 🌟 STRATEGIA BROWSER: Cambiamo in Safari (forza WhatsApp a saltare molti controlli pesanti)
-        browser: Browsers.macOS("Safari"), 
+        // 🌟 AGGIUNGI QUESTE RIGHE PER EVITARE L'ERRORE 515:
+        retryRequestDelayMs: 5000,         // Attende 5 secondi prima di considerare una richiesta fallita
+        maxRetries: 5,                     // Aumenta i tentativi di recupero dei pacchetti persi
         
-        // 🛑 BLOCCO TOTALE CRONOLOGIA E MEMORIA (Risolve l'accesso in corso):
-        syncFullHistory: false,            // Non scaricare la cronologia completa
-        fireInitQueries: false,            // Non inviare query massive iniziali
-        shouldSyncHistoryMessage: () => false, // Rifiuta i messaggi vecchi
-        markOnlineOnConnect: false,        // Non mostrare il bot online durante il login (riduce il carico)
-        emitOwnEvents: false,              // Non processare i propri eventi passati
-        
-        // ⏳ TIMEOUT DI SICUREZZA MAXATI:
-        connectTimeoutMs: 90000,           // 90 secondi di tolleranza per i server cloud
+        connectTimeoutMs: 90000,
         defaultQueryTimeoutMs: 90000,
-        keepAliveIntervalMs: 30000
+        keepAliveIntervalMs: 30000,
+        syncFullHistory: false,
+        fireInitQueries: false,
+        shouldSyncHistoryMessage: () => false
     });
 
     let saveTimeout;
