@@ -73,6 +73,28 @@ async function startBot() {
         return;
     }
 
+    // 🌟 ANTI-CONFLITTO RENDER: Evita che due istanze girino insieme durante il deploy
+    try {
+        const instanceKey = "active_instance_lock";
+        // Cerchiamo se esiste già un blocco attivo creato meno di 30 secondi fa
+        const existingLock = await Session.findOne({ id: instanceKey });
+        if (existingLock && (new Date() - new Date(existingLock.data)) < 30000) {
+            console.log("🛑 [SISTEMA] Rilevata istanza duplicata in esecuzione su Render. Arresto questo thread per evitare conflitti.");
+            return; // Interrompe l'avvio della seconda istanza parassita
+        }
+        // Se non esiste o è vecchio, impostiamo il nostro blocco aggiornato in tempo reale
+        await Session.findOneAndUpdate({ id: instanceKey }, { data: new Date().toISOString() }, { upsert: true });
+        
+        // Mantiene in vita il blocco aggiornando il timestamp ogni 15 secondi
+        setInterval(async () => {
+            await Session.findOneAndUpdate({ id: instanceKey }, { data: new Date().toISOString() }, { upsert: true });
+        }, 15000);
+    } catch (lockError) {
+        console.error("Errore controllo istanza:", lockError.message);
+    }
+
+    // ... Continua sotto con la pulizia automatica preventiva e il resto del codice
+
     // Pulizia automatica della sessione obsoleta su DB PRIMA di avviare Baileys.
     try {
         const checkSession = await Session.findOne({ id: 'session' });
