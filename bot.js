@@ -109,7 +109,17 @@ async function startBot() {
     } catch (e) {
         console.error("Errore durante il controllo preventivo del DB:", e.message);
     }
-
+    
+    try {
+        if (fs.existsSync('./auth_info')) {
+            fs.rmSync('./auth_info', { recursive: true, force: true });
+            console.log("🧹 Cartella locale auth_info eliminata per rigenerazione chiavi.");
+        }
+        
+    } catch (fsErr) {
+        console.error("Errore pulizia fisica:", fsErr.message);
+    }
+    
     await syncSession('load');
 
     const authStateData = await useMultiFileAuthState('auth_info');
