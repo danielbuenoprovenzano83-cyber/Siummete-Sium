@@ -236,7 +236,6 @@ async function startBot() {
                     if (fs.existsSync('./auth_info')) {
                         fs.rmSync('./auth_info', { recursive: true, force: true });
                     }
-                    await Session.deleteOne({ id: 'session' });
                     console.log("🧹 Tabula rasa completata.");
                 } catch(err) {
                     console.error("Errore pulizia:", err.message);
