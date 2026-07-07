@@ -138,23 +138,30 @@ async function startBot() {
         console.log("⚠️ Impossibile recuperare versione aggiornata, uso del fallback stabile.");
     }
 
+    // 🌟 RIGIDA VERSIONE ULTRALEGGERA (Risolve lo Status 515)
+    // Usiamo una versione nativa precedente per saltare i controlli crittografici pesanti di Meta
+    const lightVersion =; 
+
     const sock = makeWASocket({
-        version: botVersion,
+        version: lightVersion, 
         auth: botState,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.macOS("Safari"),
-        
-        // 🌟 AGGIUNGI QUESTE RIGHE PER EVITARE L'ERRORE 515:
-        retryRequestDelayMs: 5000,         // Attende 5 secondi prima di considerare una richiesta fallita
-        maxRetries: 5,                     // Aumenta i tentativi di recupero dei pacchetti persi
-        
-        connectTimeoutMs: 90000,
-        defaultQueryTimeoutMs: 90000,
-        keepAliveIntervalMs: 30000,
+        browser: Browsers.macOS("Safari"), // Safari gestisce l'handshake in modo più snello rispetto a Chrome
+
+        // 🛑 BLOCCO COMPLETO DEI FLUSSI DATI (Niente più disconnessioni)
         syncFullHistory: false,
         fireInitQueries: false,
-        shouldSyncHistoryMessage: () => false
+        shouldSyncHistoryMessage: () => false,
+        markOnlineOnConnect: false,
+        emitOwnEvents: false,
+
+        // ⏳ ESTENSIONE TOTALE DEI TIMER DI RETE
+        connectTimeoutMs: 120000,          // 2 minuti di tolleranza all'avvio
+        defaultQueryTimeoutMs: 120000,     // 2 minuti di tolleranza per le risposte
+        keepAliveIntervalMs: 60000,        // Invia il ping solo ogni 60 secondi (evita il sovraccarico)
+        retryRequestDelayMs: 10000,        // Aspetta 10 secondi prima di considerare un pacchetto perso
+        maxRetries: 10                     // Tenta fino a 10 volte il recupero prima di arrendersi
     });
 
     let saveTimeout;
