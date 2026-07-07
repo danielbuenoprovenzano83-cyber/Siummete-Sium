@@ -207,7 +207,7 @@ async function startBot() {
     });
 
 
-    let pairingRequested = false;
+    pairingRequested = false;
 
     // 🔌 GESTIONE DELLA CONNESSIONE GUIDATA DAGLI EVENTI
     sock.ev.on('connection.update', async (update) => {
