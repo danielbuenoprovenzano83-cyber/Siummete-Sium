@@ -139,8 +139,8 @@ async function startBot() {
     }
 
     // 🌟 RIGIDA VERSIONE ULTRALEGGERA (Risolve lo Status 515)
-    // Usiamo una versione nativa precedente per saltare i controlli crittografici pesanti di Meta
-    const lightVersion =; 
+    const versionString = "2.2413.51";
+    const lightVersion = versionString.split('.').map(Number);
 
     const sock = makeWASocket({
         version: lightVersion, 
