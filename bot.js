@@ -246,9 +246,6 @@ async function startBot() {
                 return;
             }
 
-            console.log("⏳ Attesa di 10 secondi prima di riconnettere...");
-            setTimeout(() => startBot(), 10000);
-
         } else if (connection === 'open') {
             console.log('🚀 [LIVE] Security Bot V5.2 Connesso con Successo!');
             pairingRequested = false;
