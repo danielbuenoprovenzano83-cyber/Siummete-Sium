@@ -20,8 +20,26 @@ let isResetting = false;
 
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('🛡️ Security Bot V5.2 Full Control Online'));
-app.listen(port, () => console.log(`✅ Server attivo`));
+
+app.get('/', (req, res) => {
+    res.send('🛡️ Security Bot V5.2 Full Control Online');
+});
+
+app.listen(port, () => {
+    console.log(`✅ Server attivo sulla porta ${port}`);
+    
+    // 🌟 ANTI-CONGELAMENTO RENDER:
+    // Effettua una richiesta HTTP fittizia su se stesso ogni 10 secondi.
+    // Questo impedisce a Render di tagliare la connessione internet del server durante il pairing.
+    setInterval(() => {
+        const http = require('http');
+        http.get(`http://localhost:${port}/`, (res) => {
+            // Risposta ricevuta con successo, la linea rimane attiva
+        }).on('error', (e) => {
+            // Ignora eventuali micro-errori di boot
+        });
+    }, 10000); // 10 secondi
+});
 
 // --- SCHEMA MONGODB ---
 const UserGroupData = mongoose.model('UserGroupData', new mongoose.Schema({
