@@ -189,13 +189,24 @@ async function startBot() {
 
     let pairingRequested = false;
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    // 🌟 DEBOUNCE DI SICUREZZA ANTI-428/401
+    // Salva le credenziali su disco istantaneamente, ma attende 10 secondi di totale silenzio
+    // prima di caricare i file su MongoDB. Questo evita di inviare dati parziali o corrotti.
+    // 💾 SALVATAGGIO CON DEBOUNCE ISOLATO
+    // Salva subito i file sul disco locale, ma aspetta 10 secondi prima di inviarli a MongoDB.
+    // Questo impedisce al database di bloccarsi o corrompere le chiavi.
+    let dbSaveTimeout;
+    sock.ev.on('creds.update', async () => { 
+        await botSaveCreds(); // Salva subito sul disco locale di Render (mantiene il pairing attivo)
+        
+        clearTimeout(dbSaveTimeout);
+        dbSaveTimeout = setTimeout(async () => {
+            console.log("💾 Sincronizzazione sicura delle credenziali su MongoDB...");
+            await syncSession('save'); // Invia i file al database solo quando i dati sono stabili
+        }, 10000); // Ritardo di 10 secondi
+    });
 
-        if (qr && !sock.authState.creds.registered && !pairingRequested) {
-            pairingRequested = true;
-            console.log("⏳ [SISTEMA] Connessione stabilizzata. Generazione del codice di pairing...");
-            
+
             setTimeout(async () => {
                 try {
                     const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, '');
