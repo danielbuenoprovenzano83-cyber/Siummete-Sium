@@ -245,16 +245,16 @@ async function startBot() {
                 console.log("⏳ Riavvio pulito tra 5 secondi...");
                 setTimeout(() => startBot(), 5000);
                 return;
-            }
-
-            console.log("⏳ Attesa di 10 secondi prima di riconnettere...");
-            setTimeout(() => startBot(), 10000);
-
-        } else if (connection === 'open') {
-            console.log('🚀 [LIVE] Security Bot V5.2 Connesso con Successo!');
-            pairingRequested = false;
         }
-    });
+
+        console.log("⏳ Attesa di 10 secondi prima di riconnettere...");
+        setTimeout(() => startBot(), 10000);
+
+    } else if (connection === 'open') {
+        console.log('🚀 [LIVE] Security Bot V5.2 Connesso con Successo!');
+        pairingRequested = false;
+    }
+});
 
     // Rimuoviamo la vecchia funzione statica setTimeout esterna che generava conflitti
 
