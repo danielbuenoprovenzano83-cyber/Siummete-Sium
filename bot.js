@@ -138,12 +138,7 @@ async function startBot() {
         console.log("⚠️ Impossibile recuperare versione aggiornata, uso del fallback stabile.");
     }
 
-    // 🌟 RIGIDA VERSIONE ULTRALEGGERA (Risolve lo Status 515)
-    const versionString = "2.2413.51";
-    const lightVersion = versionString.split('.').map(Number);
-
     const sock = makeWASocket({
-        version: lightVersion, 
         auth: botState,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
