@@ -207,6 +207,17 @@ async function startBot() {
     });
 
 
+    let pairingRequested = false;
+
+    // 🔌 GESTIONE DELLA CONNESSIONE GUIDATA DAGLI EVENTI
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        // Gestione automatica e reattiva del Pairing Code
+        if (qr && !sock.authState.creds.registered && !pairingRequested) {
+            pairingRequested = true;
+            console.log("⏳ [SISTEMA] Connessione al server stabilizzata. Generazione del codice di pairing...");
+            
             setTimeout(async () => {
                 try {
                     const phoneNumber = ME_NUMBER.replace(/[^0-9]/g, '');
@@ -230,20 +241,17 @@ async function startBot() {
 
             if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
                 console.log("⚠️ Sessione rifiutata (401). Svuoto la cache locale...");
-                global.isResettingBot = true;
-                
                 try {
                     if (fs.existsSync('./auth_info')) {
                         fs.rmSync('./auth_info', { recursive: true, force: true });
                     }
-                    console.log("🧹 Tabula rasa completata.");
-                } catch(err) {
-                    console.error("Errore pulizia:", err.message);
-                }
-                global.isResettingBot = false;
+                    Session.deleteOne({ id: 'session' }).catch(e => {});
+                } catch(err) {}
+
                 console.log("⏳ Riavvio pulito tra 5 secondi...");
                 setTimeout(() => startBot(), 5000);
                 return;
+            }
 
             console.log("⏳ Attesa di 10 secondi prima di riconnettere...");
             setTimeout(() => startBot(), 10000);
@@ -253,9 +261,6 @@ async function startBot() {
             pairingRequested = false;
         }
     });
-} catch (error) {
-    console.error("Errore critico nel ciclo principale del bot:", error);
-}
 
     // Rimuoviamo la vecchia funzione statica setTimeout esterna che generava conflitti
 
