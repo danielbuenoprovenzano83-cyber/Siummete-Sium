@@ -90,7 +90,7 @@ async function startBot() {
         setTimeout(() => startBot(), 15000); 
         return;
     }
-
+/*
     // 🌟 ANTI-CONFLITTO RENDER: Evita che due istanze girino insieme durante il deploy
     try {
         const instanceKey = "active_instance_lock";
@@ -110,6 +110,7 @@ async function startBot() {
     } catch (lockError) {
         console.error("Errore controllo istanza:", lockError.message);
     }
+    */
 
     // ... Continua sotto con la pulizia automatica preventiva e il resto del codice
 
@@ -171,7 +172,7 @@ async function startBot() {
 
         // ⏳ ESTENSIONE TOTALE DEI TIMER DI RETE
         connectTimeoutMs: 120000,          // 2 minuti di tolleranza all'avvio
-        defaultQueryTimeoutMs: 120000,     // 2 minuti di tolleranza per le risposte
+        defaultQueryTimeoutMs: 180000,     // 3 minuti di tolleranza per le risposte
         keepAliveIntervalMs: 60000,        // Invia il ping solo ogni 60 secondi (evita il sovraccarico)
         retryRequestDelayMs: 10000,        // Aspetta 10 secondi prima di considerare un pacchetto perso
         maxRetries: 10                     // Tenta fino a 10 volte il recupero prima di arrendersi
